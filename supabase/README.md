@@ -1,0 +1,2 @@
+-- Demo users (run in the SQL editor after schema). Password: Oaklane-Demo-2026!
+-- See tests/verify.mjs and README for emails.
