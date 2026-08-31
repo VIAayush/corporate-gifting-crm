@@ -1,0 +1,2 @@
+-- Oaklane CRM schema
+-- xml-escape probe: amount > 0 and x < y and a <> b
