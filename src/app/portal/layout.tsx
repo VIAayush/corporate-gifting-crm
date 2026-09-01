@@ -1,0 +1,46 @@
+import React from 'react'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { PortalLayout } from '@/components/layout/portal-layout'
+
+export default async function PortalLayoutWrapper({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role, company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) {
+    redirect('/login')
+  }
+
+  if (profile.role !== 'client_admin') {
+    redirect('/crm/dashboard')
+  }
+
+  // Get company name
+  let companyName = 'Your Company'
+  if (profile.company_id) {
+    const { data: company } = await supabase
+      .from('companies')
+      .select('name')
+      .eq('id', profile.company_id)
+      .single()
+    if (company) companyName = company.name
+  }
+
+  const displayName = profile.full_name || user.email?.split('@')[0] || 'User'
+
+  return (
+    <PortalLayout user={{ name: displayName, company_name: companyName }}>
+      {children}
+    </PortalLayout>
+  )
+}
