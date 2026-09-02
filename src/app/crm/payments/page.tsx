@@ -1,22 +1,67 @@
-import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
-import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
-export default async function Page() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect('/login');
+export default async function PaymentsPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: payments } = await supabase.from('payments').select('*, invoices(invoice_number, companies(name))').order('payment_date', { ascending: false })
+  
+  const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+  const totalThisMonth = payments?.filter(p => p.payment_date >= currentMonthStart).reduce((acc, curr) => acc + Number(curr.amount), 0) || 0
 
   return (
     <div className="p-6">
-      <div className="flex gap-4 items-center mb-6">
-        <Link href="/crm" className="text-sm text-blue-600">&larr; Back</Link>
-        <h1 className="text-2xl font-bold text-[var(--color-primary)] capitalize">payments</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-[var(--color-primary)]">Payments Received</h1>
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-2 rounded-lg shadow-sm">
+          <span className="text-sm font-medium mr-2">Total This Month:</span>
+          <span className="text-lg font-bold">{formatCurrency(totalThisMonth)}</span>
+        </div>
       </div>
-      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] p-6 rounded-lg">
-        <p className="text-[var(--color-text-secondary)]">Complete real page implementation for payments.</p>
-        <p className="mt-4 text-gray-500">Fetching live data connected to Supabase...</p>
+      
+      <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-[var(--color-border)] bg-gray-50">
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Date</th>
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Amount</th>
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Method</th>
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Reference</th>
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Invoice #</th>
+              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Company</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payments?.map(payment => (
+              <tr key={payment.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
+                <td className="p-3 text-sm">{formatDate(payment.payment_date)}</td>
+                <td className="p-3 text-sm font-medium text-green-600">{formatCurrency(payment.amount)}</td>
+                <td className="p-3 text-sm">
+                  <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium uppercase tracking-wider text-gray-600">
+                    {payment.method.replace('_', ' ')}
+                  </span>
+                </td>
+                <td className="p-3 text-sm text-[var(--color-text-secondary)]">{payment.reference || '-'}</td>
+                <td className="p-3 text-sm">
+                  <Link href={`/crm/invoices/${payment.invoice_id}`} className="text-blue-600 hover:underline">
+                    {payment.invoices?.invoice_number}
+                  </Link>
+                </td>
+                <td className="p-3 text-sm">{payment.invoices?.companies?.name}</td>
+              </tr>
+            ))}
+            {(!payments || payments.length === 0) && (
+              <tr>
+                <td colSpan={6} className="p-4 text-center text-[var(--color-text-secondary)]">No payments found.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
+  )
 }
