@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
-export async function signIn(formData: FormData) {
+export async function signIn(formData: FormData): Promise<{ error?: string } | undefined> {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
@@ -22,7 +22,6 @@ export async function signIn(formData: FormData) {
   }
 
   if (data.user) {
-    // Get profile to determine redirect
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -39,7 +38,7 @@ export async function signIn(formData: FormData) {
   return { error: 'Failed to sign in' }
 }
 
-export async function signOut() {
+export async function signOut(): Promise<void> {
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')

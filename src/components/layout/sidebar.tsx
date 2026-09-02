@@ -4,13 +4,12 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  LayoutDashboard, Building2, Users, TrendingUp, ClipboardList, Activity,
-  Package, Image as ImageIcon, FlaskConical, FileText, ShoppingBag,
-  Layers, Truck, Printer, Package2, Receipt, ArrowDownToLine, ArrowUpFromLine,
-  CreditCard, Target, BarChart3, CheckSquare, Megaphone, Star, UserCog, Settings, LogOut
+  LayoutDashboard, Building2, Users, TrendingUp, FolderGit2, ClipboardList,
+  Package, Image as ImageIcon, FileText, ShoppingBag,
+  Truck, Printer, Package2, Receipt, CreditCard, ArrowDownToLine,
+  BarChart3, Activity, UserCog, Settings, ShieldCheck, LogOut
 } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
-import { CompanyAvatar } from '../ui/avatar';
 
 type Role = 'admin' | 'sales' | 'operations' | 'accounts' | 'management' | 'client_admin';
 
@@ -25,77 +24,66 @@ interface SidebarProps {
 
 const navGroups = [
   {
-    label: 'OVERVIEW',
+    label: 'WORKSPACE',
     roles: ['admin', 'sales', 'operations', 'accounts', 'management'],
     items: [
-      { label: 'Dashboard', href: '/crm/dashboard', icon: LayoutDashboard }
+      { label: 'Dashboard', href: '/crm/dashboard', matchPrefix: '/crm/dashboard', icon: LayoutDashboard }
     ]
   },
   {
     label: 'CRM',
-    roles: ['admin', 'sales'],
+    roles: ['admin', 'sales', 'management'],
     items: [
-      { label: 'Companies', href: '/crm/companies', icon: Building2 },
-      { label: 'Contacts', href: '/crm/contacts', icon: Users },
-      { label: 'Leads', href: '/crm/leads', icon: TrendingUp },
-      { label: 'Requirements', href: '/crm/requirements', icon: ClipboardList },
-      { label: 'Activities', href: '/crm/activities', icon: Activity }
-    ]
-  },
-  {
-    label: 'CATALOGUE',
-    roles: ['admin', 'sales'],
-    items: [
-      { label: 'Products', href: '/crm/products', icon: Package },
-      { label: 'Mockups', href: '/crm/mockups', icon: ImageIcon },
-      { label: 'Samples', href: '/crm/samples', icon: FlaskConical }
+      { label: 'Companies', href: '/crm/companies', matchPrefix: '/crm/companies', icon: Building2 },
+      { label: 'Contacts', href: '/crm/contacts', matchPrefix: '/crm/contacts', icon: Users },
+      { label: 'Leads', href: '/crm/leads', matchPrefix: '/crm/leads', icon: TrendingUp },
+      { label: 'Campaigns', href: '/crm/campaigns', matchPrefix: '/crm/campaigns', icon: FolderGit2 },
+      { label: 'Requirements', href: '/crm/requirements', matchPrefix: '/crm/requirements', icon: ClipboardList }
     ]
   },
   {
     label: 'SALES',
     roles: ['admin', 'sales', 'operations'],
     items: [
-      { label: 'Quotations', href: '/crm/quotations', icon: FileText, roles: ['admin', 'sales'] },
-      { label: 'Orders', href: '/crm/orders', icon: ShoppingBag }
+      { label: 'Catalogue', href: '/crm/products', matchPrefix: '/crm/products', icon: Package },
+      { label: 'Mockups', href: '/crm/mockups', matchPrefix: '/crm/mockups', icon: ImageIcon },
+      { label: 'Quotations', href: '/crm/quotations', matchPrefix: '/crm/quotations', icon: FileText }
     ]
   },
   {
     label: 'OPERATIONS',
-    roles: ['admin', 'operations'],
+    roles: ['admin', 'operations', 'management'],
     items: [
-      { label: 'Order Management', href: '/crm/order-management', icon: Layers },
-      { label: 'Suppliers', href: '/crm/suppliers', icon: Truck },
-      { label: 'Printing Vendors', href: '/crm/printing-vendors', icon: Printer },
-      { label: 'Courier Partners', href: '/crm/courier-partners', icon: Package2 }
+      { label: 'Orders', href: '/crm/orders', matchPrefix: '/crm/orders', icon: ShoppingBag },
+      { label: 'Suppliers', href: '/crm/suppliers', matchPrefix: '/crm/suppliers', icon: Truck },
+      { label: 'Printing vendors', href: '/crm/printing-vendors', matchPrefix: '/crm/printing-vendors', icon: Printer },
+      { label: 'Courier partners', href: '/crm/courier-partners', matchPrefix: '/crm/courier-partners', icon: Package2 }
     ]
   },
   {
     label: 'FINANCE',
-    roles: ['admin', 'accounts'],
+    roles: ['admin', 'accounts', 'management'],
     items: [
-      { label: 'Invoices', href: '/crm/invoices', icon: Receipt },
-      { label: 'Receivables', href: '/crm/receivables', icon: ArrowDownToLine },
-      { label: 'Payables', href: '/crm/payables', icon: ArrowUpFromLine },
-      { label: 'Payments', href: '/crm/payments', icon: CreditCard }
+      { label: 'Invoices', href: '/crm/invoices', matchPrefix: '/crm/invoices', icon: Receipt },
+      { label: 'Payments', href: '/crm/payments', matchPrefix: '/crm/payments', icon: CreditCard },
+      { label: 'Receivables', href: '/crm/receivables', matchPrefix: '/crm/receivables', icon: ArrowDownToLine }
     ]
   },
   {
     label: 'MANAGEMENT',
     roles: ['admin', 'management'],
     items: [
-      { label: 'Goals', href: '/crm/goals', icon: Target },
-      { label: 'Reports', href: '/crm/reports', icon: BarChart3 },
-      { label: 'Tasks', href: '/crm/tasks', icon: CheckSquare },
-      { label: 'Announcements', href: '/crm/announcements', icon: Megaphone },
-      { label: 'Reviews', href: '/crm/reviews', icon: Star },
-      { label: 'Team', href: '/crm/team', icon: UserCog }
+      { label: 'Reports', href: '/crm/reports', matchPrefix: '/crm/reports', icon: BarChart3 },
+      { label: 'Activities', href: '/crm/activities', matchPrefix: '/crm/activities', icon: Activity }
     ]
   },
   {
     label: 'ADMIN',
     roles: ['admin'],
     items: [
-      { label: 'Settings', href: '/crm/settings', icon: Settings }
+      { label: 'Team', href: '/crm/team', matchPrefix: '/crm/team', icon: UserCog },
+      { label: 'Settings', href: '/crm/settings', matchPrefix: '/crm/settings', icon: Settings },
+      { label: 'Audit log', href: '/crm/audit-log', matchPrefix: '/crm/audit-log', icon: ShieldCheck }
     ]
   }
 ];
@@ -107,72 +95,73 @@ export function Sidebar({ role, user }: SidebarProps) {
     await signOut();
   };
 
+  const displayName = user?.name || (role === 'admin' ? 'Asha Menon' : 'User');
+  const roleName = role === 'admin' ? 'Admin' : role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
   return (
-    <div className="flex flex-col w-64 h-screen bg-white border-r border-gray-200">
-      <div className="flex items-center h-16 px-6 border-b border-gray-100 flex-shrink-0">
-        <div className="flex items-center gap-2 text-primary">
-          <div className="w-8 h-8 bg-primary text-white rounded font-bold flex items-center justify-center text-xl">
-            G
-          </div>
-          <span className="font-bold text-xl tracking-tight">GIFFTER</span>
+    <aside className="w-64 flex-shrink-0 bg-[#16281E] text-[#A3B5AA] flex flex-col justify-between h-screen select-none border-r border-[#1B3224]">
+      {/* Brand Header */}
+      <div>
+        <div className="px-6 pt-6 pb-4 border-b border-[#21382A]">
+          <Link href="/crm/dashboard" className="block group">
+            <h1 className="font-serif text-2xl font-normal tracking-tight text-[#FAF7F2] group-hover:text-white transition-colors">
+              Oaklane
+            </h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] font-semibold text-[#8B9E92] mt-0.5">
+              GIFT OPERATIONS
+            </p>
+          </Link>
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto py-4">
-        {navGroups.map((group) => {
-          if (!group.roles.includes(role)) return null;
+        {/* Navigation list */}
+        <div className="px-3 py-4 space-y-5 overflow-y-auto max-h-[calc(100vh-175px)]">
+          {navGroups.map((group) => {
+            if (!group.roles.includes(role)) return null;
 
-          const visibleItems = group.items.filter(item => !item.roles || item.roles.includes(role));
-          if (visibleItems.length === 0) return null;
-
-          return (
-            <div key={group.label} className="mb-6 px-4">
-              <h3 className="px-2 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {group.label}
-              </h3>
-              <div className="space-y-1">
-                {visibleItems.map((item) => {
-                  const isActive = pathname.startsWith(item.href);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`flex items-center gap-3 px-2 py-2 text-sm font-medium rounded-md transition-colors ${
-                        isActive 
-                          ? 'bg-primary/10 text-primary' 
-                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                      }`}
-                    >
-                      <Icon className={`w-4 h-4 ${isActive ? 'text-primary' : 'text-gray-400'}`} />
-                      {item.label}
-                    </Link>
-                  );
-                })}
+            return (
+              <div key={group.label} className="space-y-1">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[#697D71]">
+                  {group.label}
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const isActive = pathname === item.href || (item.matchPrefix !== '/crm/dashboard' && pathname.startsWith(item.matchPrefix));
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-all font-medium ${
+                          isActive
+                            ? 'bg-[#274433] text-[#FAF7F2] font-semibold shadow-sm'
+                            : 'text-[#9EB0A4] hover:bg-[#1E3628] hover:text-[#FAF7F2]'
+                        }`}
+                      >
+                        <item.icon className={`w-4 h-4 ${isActive ? 'text-[#FAF7F2]' : 'text-[#7D9385]'}`} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {user && (
-        <div className="flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3">
-            <CompanyAvatar name={user.name || 'User'} logoPath={user.avatar_url} size="md" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-              <p className="text-xs text-gray-500 truncate capitalize">{role.replace('_', ' ')}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="p-2 text-gray-400 hover:text-red-600 rounded-md hover:bg-red-50 transition-colors"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+      {/* Footer User Profile */}
+      <div className="p-4 border-t border-[#21382A] bg-[#122219]">
+        <div className="mb-2">
+          <p className="text-sm font-medium text-[#FAF7F2] truncate">{displayName}</p>
+          <p className="text-xs text-[#7D9385]">{roleName}</p>
         </div>
-      )}
-    </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 text-xs text-[#A3B5AA] hover:text-white transition-colors pt-1"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Sign out</span>
+        </button>
+      </div>
+    </aside>
   );
 }

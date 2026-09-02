@@ -26,14 +26,14 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     redirect('/portal/catalogue');
   }
 
-  const displayName = profile.full_name || user.email?.split('@')[0] || 'User';
+  const displayName = profile.full_name || (user.email === 'admin@oaklane.demo' ? 'Asha Menon' : user.email?.split('@')[0]) || 'Asha Menon';
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-background)' }}>
+    <div className="flex h-screen overflow-hidden bg-[#F4EFE6]">
       <Sidebar role={profile.role} user={{ name: displayName, email: user.email || '' }} />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar user={{ name: displayName }} />
-        <main className="flex-1 overflow-y-auto p-6">
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        <Topbar user={{ name: displayName, email: user.email || '' }} />
+        <main className="flex-1 overflow-y-auto bg-[#F4EFE6]">
           {children}
         </main>
       </div>
