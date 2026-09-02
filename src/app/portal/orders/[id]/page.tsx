@@ -1,11 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { format } from 'date-fns'
+import { BackButton } from '@/components/ui/back-button'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import { ShoppingBag, Truck, PackageCheck } from 'lucide-react'
+
+const STAGES = ['received', 'planning', 'supplier_coordination', 'printing', 'quality_check', 'dispatch', 'delivered']
 
 export default async function PortalOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return redirect('/login')
 
   const { data: companyId } = await supabase.rpc('client_company_id')
 
@@ -13,8 +19,9 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
     .from('orders')
     .select(`
       *,
+      courier_partner:courier_partners(name, tracking_url),
       items:order_items(
-        id, quantity, unit_price, line_total, product:products(name, sku)
+        id, quantity, unit_price, line_total, product:products(name, sku, image_url)
       )
     `)
     .eq('id', id)
@@ -24,102 +31,90 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
     notFound()
   }
 
-  const STAGES = [
-    'processing',
-    'production',
-    'quality_check',
-    'dispatch',
-    'delivered'
-  ]
   const currentStageIndex = STAGES.indexOf(order.status)
   
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <Link href="/portal/orders" className="text-[#4A235A] hover:underline text-sm font-medium flex items-center gap-1">
-          ← Back to Orders
-        </Link>
-      </div>
+    <div className="max-w-4xl mx-auto space-y-6">
+      <BackButton href="/portal/orders" label="Back to Orders" />
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
-        <div className="p-8 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">Order {order.order_number}</h1>
-            <p className="text-sm text-gray-500">Placed on {format(new Date(order.created_at), 'MMMM dd, yyyy')}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm font-medium text-gray-900 mb-1">
-              Expected Delivery: {order.expected_delivery_date ? format(new Date(order.expected_delivery_date), 'MMM dd, yyyy') : 'Pending confirmation'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-xs font-bold text-gray-500 bg-white px-2 py-0.5 rounded border">
+                {order.order_number}
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-[#4A235A] uppercase">
+                {order.status?.replace('_', ' ')}
+              </span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">Corporate Delivery Order</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Order Confirmed on {formatDate(order.created_at)}
             </p>
-            <span className={`inline-block px-3 py-1 text-xs font-medium rounded-full ${
-              order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-              order.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-              'bg-blue-100 text-blue-800'
-            }`}>
-              {order.status.replace('_', ' ').toUpperCase()}
-            </span>
+          </div>
+
+          <div className="sm:text-right">
+            <p className="text-[10px] uppercase font-bold text-gray-400">Total Order Value</p>
+            <p className="text-2xl font-bold text-[#4A235A]">{formatCurrency(order.order_value)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Expected Delivery: <span className="font-bold text-gray-800">{formatDate(order.expected_delivery_date)}</span>
+            </p>
           </div>
         </div>
 
         {/* Progress Tracker */}
-        {order.status !== 'cancelled' && (
-          <div className="p-8 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900 mb-8">Order Progress</h3>
-            <div className="relative">
-              <div className="absolute top-1/2 left-0 right-0 h-1 bg-gray-200 -translate-y-1/2 z-0"></div>
+        <div className="p-6 border-b border-gray-100 space-y-4">
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Delivery Progress</h3>
+          <div className="relative">
+            <div className="overflow-hidden h-2 mb-4 text-xs flex rounded-full bg-gray-100">
               <div 
-                className="absolute top-1/2 left-0 h-1 bg-[#4A235A] -translate-y-1/2 z-0 transition-all duration-500" 
-                style={{ width: `${Math.max(0, (currentStageIndex / (STAGES.length - 1)) * 100)}%` }}
-              ></div>
-              
-              <div className="relative z-10 flex justify-between">
-                {STAGES.map((stage, index) => (
-                  <div key={stage} className="flex flex-col items-center gap-2">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${
-                      index <= currentStageIndex 
-                        ? 'bg-[#4A235A] border-[#4A235A] text-white' 
-                        : 'bg-white border-gray-300 text-gray-400'
-                    }`}>
-                      {index < currentStageIndex ? '✓' : index + 1}
-                    </div>
-                    <span className={`text-xs font-medium uppercase tracking-wider ${
-                      index <= currentStageIndex ? 'text-[#4A235A]' : 'text-gray-400'
-                    }`}>
-                      {stage.replace('_', ' ')}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                style={{ width: `${Math.max(8, (currentStageIndex + 1) / STAGES.length * 100)}%` }} 
+                className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-[#4A235A] transition-all duration-500"
+              />
             </div>
-            
-            {order.tracking_number && (
-              <div className="mt-8 bg-blue-50 p-4 rounded-lg flex items-center justify-between border border-blue-100">
+            <div className="grid grid-cols-7 text-center">
+              {STAGES.map((stage, idx) => (
+                <div key={stage} className={`text-[10px] font-semibold capitalize ${idx <= currentStageIndex ? 'text-[#4A235A]' : 'text-gray-400'}`}>
+                  {stage.replace('_', ' ')}
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          {order.tracking_number && (
+            <div className="mt-4 bg-purple-50/50 p-4 rounded-xl flex items-center justify-between border border-purple-100 text-xs">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 text-[#4A235A] rounded-lg">
+                  <Truck size={16} />
+                </div>
                 <div>
-                  <h4 className="text-sm font-semibold text-blue-900">Tracking Information</h4>
-                  <p className="text-sm text-blue-800 mt-1">
-                    Courier: {order.courier_partner_id || 'Standard'} | Tracking Number: <span className="font-mono bg-white px-2 py-0.5 rounded text-blue-900">{order.tracking_number}</span>
+                  <p className="font-bold text-gray-900">Shipment Dispatched</p>
+                  <p className="text-gray-500 mt-0.5">
+                    Courier: {(order.courier_partner as any)?.name || 'Air Express'} ? Tracking / AWB: <span className="font-mono font-bold text-gray-800">{order.tracking_number}</span>
                   </p>
                 </div>
-                {order.tracking_link && (
-                  <a 
-                    href={order.tracking_link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    Track Package
-                  </a>
-                )}
               </div>
-            )}
-          </div>
-        )}
+              {(order.courier_partner as any)?.tracking_url && (
+                <a 
+                  href={(order.courier_partner as any).tracking_url.replace('{tracking}', order.tracking_number)} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-[#4A235A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#3d1c4a] transition-colors"
+                >
+                  Track Package
+                </a>
+              )}
+            </div>
+          )}
+        </div>
 
-        <div className="p-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Ordered Items</h3>
-          <div className="border border-gray-200 rounded-lg overflow-hidden mb-6">
-            <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-gray-50 text-gray-900 border-b border-gray-200">
+        {/* Ordered Items */}
+        <div className="p-6">
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-4">Gifting Items in this Order</h3>
+          <div className="border border-gray-200 rounded-xl overflow-hidden mb-6">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Product</th>
                   <th className="px-4 py-3 font-semibold text-center">Qty</th>
@@ -127,29 +122,20 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
                   <th className="px-4 py-3 font-semibold text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-100">
                 {order.items?.map((item: any) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{item.product.name}</div>
-                      <div className="text-xs text-gray-500 font-mono mt-0.5">{item.product.sku}</div>
+                      <div className="font-bold text-gray-900">{item.product?.name}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">{item.product?.sku}</div>
                     </td>
-                    <td className="px-4 py-3 text-center">{item.quantity}</td>
-                    <td className="px-4 py-3 text-right">${Number(item.unit_price).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">${Number(item.line_total).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-center font-semibold text-gray-800">{item.quantity} units</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(item.unit_price)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(item.line_total)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-          
-          <div className="flex justify-end">
-            <div className="w-full md:w-64 space-y-3 text-sm">
-              <div className="flex justify-between text-lg font-bold text-gray-900 pt-3 border-t border-gray-200">
-                <span>Total Amount</span>
-                <span>${Number(order.total_amount || 0).toFixed(2)}</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>

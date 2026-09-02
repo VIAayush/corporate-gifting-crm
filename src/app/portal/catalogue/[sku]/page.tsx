@@ -1,101 +1,100 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
-import Image from 'next/image'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
+import { BackButton } from '@/components/ui/back-button'
 import { AddToShortlistButton } from '../AddToShortlistButton'
+import { formatCurrency } from '@/lib/utils'
+import { Package, Lock, Check } from 'lucide-react'
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return redirect('/login')
 
-  // Verify access exactly like catalogue
   const { data: companyId } = await supabase.rpc('client_company_id')
-  
-  const { data: accessData } = await supabase
-    .from('company_product_access')
-    .select('product_id')
-    .eq('company_id', companyId)
-    
-  const specificIds = accessData?.map(a => a.product_id) ?? []
 
+  // Find product by SKU
   const { data: product } = await supabase
     .from('products')
     .select('*, category:categories(name), brand:brands(name)')
     .eq('sku', sku)
-    .eq('status', 'active')
-    .or(`catalogue_access.eq.all${specificIds.length > 0 ? `,id.in.(${specificIds.join(',')})` : ''}`)
     .single()
 
-  if (!product) {
+  if (!product || product.status !== 'active') {
     notFound()
   }
 
-  return (
-    <div>
-      <div className="mb-6">
-        <Link href="/portal/catalogue" className="text-[#4A235A] hover:underline text-sm font-medium flex items-center gap-1">
-          ← Back to Catalogue
-        </Link>
-      </div>
+  // Security & Isolation Check:
+  // If product is selected/personalized, verify this company is granted access
+  if (product.catalogue_access === 'selected') {
+    const { data: hasAccess } = await supabase
+      .from('company_product_access')
+      .select('id')
+      .eq('product_id', product.id)
+      .eq('company_id', companyId)
+      .single()
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-2">
-          {/* Left: Image */}
-          <div className="bg-gray-50 flex items-center justify-center p-12 relative min-h-[400px]">
-            {product.image_url ? (
-              <Image src={product.image_url} alt={product.name} fill className="object-contain p-8" />
-            ) : (
-              <div className="text-gray-400">No Image Available</div>
-            )}
-          </div>
-          
-          {/* Right: Details */}
-          <div className="p-8 lg:p-12">
-            <div className="flex items-center gap-3 mb-4">
-              {/* @ts-ignore */}
-              <span className="text-xs font-semibold text-[#4A235A] uppercase tracking-wider bg-[#4A235A]/10 px-3 py-1 rounded-full">
-                {product.category?.name || 'Uncategorized'}
-              </span>
-              {/* @ts-ignore */}
-              {product.brand?.name && (
-                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-100 px-3 py-1 rounded-full">
-                  {product.brand.name}
+    if (!hasAccess) {
+      notFound()
+    }
+  } else if (product.catalogue_access === 'none') {
+    // Internal only product - clients cannot access
+    notFound()
+  }
+
+  const isPersonalized = product.catalogue_access === 'selected'
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <BackButton href="/portal/catalogue" label="Back to Catalogue" />
+
+      <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="bg-gray-50 rounded-xl flex items-center justify-center p-6 border border-gray-100 min-h-[300px]">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name} className="max-h-72 object-contain" />
+          ) : (
+            <Package className="w-16 h-16 text-gray-300" />
+          )}
+        </div>
+
+        <div className="flex flex-col justify-between space-y-6">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {isPersonalized && (
+                <span className="inline-flex items-center gap-1 bg-[#4A235A] text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                  <Lock size={10} /> Exclusive for Your Brand
                 </span>
               )}
+              <span className="text-xs font-mono text-gray-400 font-bold">{product.sku}</span>
             </div>
-            
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.name}</h1>
-            <p className="text-sm text-gray-500 font-mono mb-8">SKU: {product.sku}</p>
-            
-            <div className="grid grid-cols-2 gap-8 mb-8 pb-8 border-b border-gray-100">
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Unit Price</p>
-                <p className="text-2xl font-bold text-gray-900">${Number(product.price).toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Minimum Order Quantity (MOQ)</p>
-                <p className="text-2xl font-bold text-gray-900">{product.moq} units</p>
-              </div>
+
+            <h1 className="text-2xl font-bold text-gray-900">{product.name}</h1>
+            <p className="text-xs text-[#4A235A] font-semibold uppercase">
+              {(product.category as any)?.name || 'Corporate Gifting'}
+            </p>
+
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-3xl font-bold text-gray-900">{formatCurrency(product.price)}</p>
+              <p className="text-xs text-gray-500 mt-1">Minimum Order Quantity: <span className="font-bold text-gray-800">{product.moq || 1} units</span></p>
             </div>
-            
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Description</h3>
-              <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">
-                {product.description || 'No description provided.'}
-              </p>
+
+            <div className="pt-3 text-xs text-gray-600 space-y-2">
+              <p className="font-semibold text-gray-700">Description & Specifications:</p>
+              <p className="leading-relaxed">{product.description || 'Custom corporate gifting product with premium materials and customized branding.'}</p>
             </div>
-            
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <AddToShortlistButton product={product} />
-              </div>
-              <Link 
-                href="/portal/requirements/new" 
-                className="flex-1 bg-white text-[#4A235A] border-2 border-[#4A235A] py-3 px-6 rounded-md hover:bg-gray-50 transition-colors font-medium text-center"
+          </div>
+
+          <div className="pt-4 border-t border-gray-100 flex items-center gap-4">
+            <div className="flex-1">
+              <Link
+                href="/portal/requirements/new"
+                className="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] transition-colors shadow-sm"
               >
-                Add to Requirement
+                Request Quotation for this Item
               </Link>
             </div>
+            <AddToShortlistButton product={product} />
           </div>
         </div>
       </div>
