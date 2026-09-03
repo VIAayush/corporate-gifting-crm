@@ -21,15 +21,27 @@ export async function createPortalRequirement(formData: {
   const { data: companyId } = await supabase.rpc('client_company_id')
   if (!companyId) return { error: 'Company not found' }
 
+  if (!formData.name?.trim()) return { error: 'Requirement name is required' }
+
   const budget = formData.budget_per_unit ? parseFloat(formData.budget_per_unit) : null
   const quantity = formData.quantity ? parseInt(formData.quantity, 10) : null
+  if (budget !== null && (!Number.isFinite(budget) || budget < 0)) return { error: 'Budget must be a positive number' }
+  if (quantity !== null && (!Number.isInteger(quantity) || quantity < 1)) return { error: 'Quantity must be a positive whole number' }
+
+  // A client user must never own a requirement, or it disappears from the sales
+  // pipeline's owner filters. Route ownership to the account manager instead.
+  const { data: company } = await supabase
+    .from('companies')
+    .select('owner_id')
+    .eq('id', companyId)
+    .maybeSingle()
 
   const { data: requirement, error } = await supabase
     .from('requirements')
     .insert({
-      name: formData.name,
+      name: formData.name.trim(),
       company_id: companyId,
-      owner_id: user.id,
+      owner_id: company?.owner_id ?? null,
       purpose: formData.purpose,
       description: formData.description,
       budget: budget,
@@ -44,7 +56,7 @@ export async function createPortalRequirement(formData: {
   if (error) return { error: error.message }
 
   // If products (SKUs) provided, link them to requirement
-  if (formData.products.length > 0 && requirement) {
+  if (formData.products?.length && requirement) {
     const { data: products } = await supabase
       .from('products')
       .select('id, sku')

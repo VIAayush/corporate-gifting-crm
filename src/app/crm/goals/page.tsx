@@ -1,77 +1,102 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { redirect } from 'next/navigation'
+import { createGoal } from './actions'
 
 export default async function GoalsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: goals } = await supabase.from('goals').select('*, owner:owner_id(full_name)').order('created_at', { ascending: false })
-  
-  // Calculate actuals
-  const { data: orders } = await supabase.from('orders').select('order_value, created_at, owner_id').in('status', ['confirmed', 'in_production', 'dispatched', 'delivered'])
-  
-  const goalsWithProgress = goals?.map(goal => {
+  const [{ data: goals }, { data: orders }, { data: team }] = await Promise.all([
+    supabase.from('goals').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false }),
+    supabase.from('orders').select('order_value, created_at, owner_id, status').in('status', [
+      'created', 'confirmed', 'in_progress', 'procurement', 'printing', 'quality_check', 'ready_to_dispatch', 'dispatched', 'delivered',
+    ]),
+    supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales', 'management']).order('full_name'),
+  ])
+
+  const goalsWithProgress = goals?.map((goal) => {
     let actual = 0
     if (goal.metric === 'revenue' && orders) {
-      const [startYear, startMonth] = goal.period.split('-')
-      const periodStart = new Date(Number(startYear), Number(startMonth) - 1, 1)
-      const periodEnd = new Date(Number(startYear), Number(startMonth), 0)
-      
-      const relevantOrders = orders.filter(o => {
+      const periodStart = goal.period_start ? new Date(goal.period_start) : new Date()
+      const periodEnd = new Date(periodStart)
+      if (goal.period_type === 'year') periodEnd.setFullYear(periodEnd.getFullYear() + 1)
+      else if (goal.period_type === 'quarter') periodEnd.setMonth(periodEnd.getMonth() + 3)
+      else periodEnd.setMonth(periodEnd.getMonth() + 1)
+
+      const relevantOrders = orders.filter((o) => {
         const d = new Date(o.created_at)
-        const isCorrectPeriod = d >= periodStart && d <= periodEnd
+        const isCorrectPeriod = d >= periodStart && d < periodEnd
         const isCorrectOwner = goal.owner_id ? o.owner_id === goal.owner_id : true
         return isCorrectPeriod && isCorrectOwner
       })
       actual = relevantOrders.reduce((acc, curr) => acc + Number(curr.order_value), 0)
     }
-    
-    const progress = Math.min(100, Math.max(0, (actual / Number(goal.target)) * 100))
+    const progress = Number(goal.target) ? Math.min(100, Math.max(0, (actual / Number(goal.target)) * 100)) : 0
     return { ...goal, actual, progress }
   })
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-[var(--color-primary)] mb-6">Goals</h1>
-      
-      <div className="grid grid-cols-2 gap-6">
-        {goalsWithProgress?.map(goal => (
-          <div key={goal.id} className="bg-[var(--color-surface)] p-6 rounded-lg border border-[var(--color-border)] shadow-sm">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h2 className="text-lg font-semibold">{goal.title}</h2>
-                <p className="text-sm text-[var(--color-text-secondary)]">{goal.owner?.full_name || 'Company Wide'} • {goal.period}</p>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-[var(--color-primary)]">Goals</h1>
+
+      <form action={createGoal} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
+        <input name="title" required placeholder="Goal title" className="border rounded-lg px-2 py-2" />
+        <select name="metric" className="border rounded-lg px-2 py-2">
+          <option value="revenue">Revenue</option>
+          <option value="orders">Orders</option>
+        </select>
+        <input name="target" type="number" min="1" required placeholder="Target" className="border rounded-lg px-2 py-2" />
+        <select name="period_type" className="border rounded-lg px-2 py-2">
+          <option value="month">Month</option>
+          <option value="quarter">Quarter</option>
+          <option value="year">Year</option>
+        </select>
+        <input name="period_start" type="date" required className="border rounded-lg px-2 py-2" />
+        <select name="owner_id" className="border rounded-lg px-2 py-2">
+          <option value="">Company-wide</option>
+          {(team || []).map((p) => (
+            <option key={p.id} value={p.id}>{p.full_name}</option>
+          ))}
+        </select>
+        <button className="bg-[#1A3022] text-white rounded-lg font-semibold md:col-span-3 py-2">Add goal</button>
+      </form>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {goalsWithProgress?.map((goal) => {
+          const owner = Array.isArray(goal.owner) ? goal.owner[0] : goal.owner
+          return (
+            <div key={goal.id} className="bg-white p-6 rounded-lg border">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold">{goal.title}</h2>
+                  <p className="text-sm text-[var(--color-text-secondary)]">
+                    {owner?.full_name || 'Company wide'} · {goal.period_type} from {formatDate(goal.period_start)}
+                  </p>
+                </div>
+                <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium uppercase">{goal.metric}</span>
               </div>
-              <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium uppercase">{goal.metric}</span>
-            </div>
-            
-            <div className="mb-2 flex justify-between text-sm">
-              <span className="font-medium text-[var(--color-text-secondary)]">Progress</span>
-              <span className="font-medium">{goal.progress.toFixed(1)}%</span>
-            </div>
-            
-            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
-              <div className={`h-2.5 rounded-full ${
-                goal.progress >= 100 ? 'bg-green-500' :
-                goal.progress >= 70 ? 'bg-amber-500' :
-                'bg-red-500'
-              }`} style={{ width: `${goal.progress}%` }}></div>
-            </div>
-            
-            <div className="flex justify-between items-center text-sm">
-              <div>
-                <p className="text-[var(--color-text-secondary)]">Actual</p>
-                <p className="font-semibold">{goal.metric === 'revenue' ? formatCurrency(goal.actual) : goal.actual}</p>
+              <div className="mb-2 flex justify-between text-sm">
+                <span>Progress</span>
+                <span>{goal.progress.toFixed(1)}%</span>
               </div>
-              <div className="text-right">
-                <p className="text-[var(--color-text-secondary)]">Target</p>
-                <p className="font-semibold">{goal.metric === 'revenue' ? formatCurrency(goal.target) : goal.target}</p>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                <div className={`h-2.5 rounded-full ${goal.progress >= 100 ? 'bg-green-500' : goal.progress >= 70 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${goal.progress}%` }} />
+              </div>
+              <div className="flex justify-between text-sm">
+                <div>
+                  <p className="text-[var(--color-text-secondary)]">Actual</p>
+                  <p className="font-semibold">{goal.metric === 'revenue' ? formatCurrency(goal.actual) : goal.actual}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[var(--color-text-secondary)]">Target</p>
+                  <p className="font-semibold">{goal.metric === 'revenue' ? formatCurrency(goal.target) : goal.target}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {(!goalsWithProgress || goalsWithProgress.length === 0) && (
           <p className="text-[var(--color-text-secondary)] p-4 col-span-2">No goals defined.</p>
         )}

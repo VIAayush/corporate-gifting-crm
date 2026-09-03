@@ -2,10 +2,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { isSafeNext, landingPathForRole } from '@/lib/safe-next'
 
 export async function signIn(formData: FormData): Promise<{ error?: string } | undefined> {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
+  const next = formData.get('next') as string | null
 
   if (!email || !password) {
     return { error: 'Email and password are required' }
@@ -28,11 +30,16 @@ export async function signIn(formData: FormData): Promise<{ error?: string } | u
       .eq('id', data.user.id)
       .single()
 
-    if (profile?.role === 'client_admin') {
-      redirect('/portal/catalogue')
-    } else {
-      redirect('/crm/dashboard')
+    const home = landingPathForRole(profile?.role)
+    if (isSafeNext(next)) {
+      const isClient = profile?.role === 'client_admin' || profile?.role === 'client_user'
+      const nextIsPortal = next.startsWith('/portal')
+      const nextIsCrm = next.startsWith('/crm') || next.startsWith('/dashboard') || next === '/dashboard'
+      if (isClient && nextIsPortal) redirect(next)
+      if (!isClient && !nextIsPortal) redirect(next)
+      if (!isClient && nextIsCrm) redirect(next)
     }
+    redirect(home)
   }
 
   return { error: 'Failed to sign in' }

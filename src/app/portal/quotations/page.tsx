@@ -1,18 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { format } from 'date-fns'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 export default async function PortalQuotationsPage() {
   const supabase = await createClient()
-  
+
   const { data: companyId } = await supabase.rpc('client_company_id')
-  
-  const { data: quotations } = await supabase
-    .from('quotations')
-    .select('*')
-    .eq('company_id', companyId)
-    .neq('status', 'draft')
-    .order('created_at', { ascending: false })
+
+  // Explicit column list: internal notes, owner and margin fields must never reach a client.
+  const { data: quotations } = companyId
+    ? await supabase
+        .from('quotations')
+        .select('id, quotation_number, status, total, valid_until, created_at')
+        .eq('company_id', companyId)
+        .neq('status', 'draft')
+        .order('created_at', { ascending: false })
+    : { data: [] }
 
   return (
     <div>
@@ -45,14 +48,10 @@ export default async function PortalQuotationsPage() {
                     <td className="px-6 py-4 font-medium text-gray-900 font-mono">
                       {quote.quotation_number}
                     </td>
-                    <td className="px-6 py-4">
-                      {format(new Date(quote.created_at), 'MMM dd, yyyy')}
-                    </td>
-                    <td className="px-6 py-4">
-                      {quote.valid_until ? format(new Date(quote.valid_until), 'MMM dd, yyyy') : '-'}
-                    </td>
+                    <td className="px-6 py-4">{formatDate(quote.created_at)}</td>
+                    <td className="px-6 py-4">{formatDate(quote.valid_until)}</td>
                     <td className="px-6 py-4 font-medium text-gray-900">
-                      ${Number(quote.total_amount || 0).toFixed(2)}
+                      {formatCurrency(quote.total)}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
@@ -61,7 +60,7 @@ export default async function PortalQuotationsPage() {
                         quote.status === 'sent' ? 'bg-blue-100 text-blue-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {quote.status.toUpperCase()}
+                        {(quote.status || 'sent').toUpperCase()}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">

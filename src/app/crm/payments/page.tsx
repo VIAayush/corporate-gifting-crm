@@ -1,12 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
 
 export default async function PaymentsPage() {
+  await requireStaff(['admin', 'accounts', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const { data: payments } = await supabase.from('payments').select('*, invoices(invoice_number, companies(name))').order('payment_date', { ascending: false })
   

@@ -4,6 +4,9 @@
   --color-primary: #1A3022;
   --color-primary-light: #274433;
   --color-primary-fg: #FAF7F2;
+  --color-accent: #4A235A;
+  --color-accent-hover: #3d1c4a;
+  --color-accent-fg: #FAF7F2;
   --color-sidebar: #16281E;
   --color-sidebar-active: #274433;
   --color-sidebar-text: #A3B5AA;
@@ -57,10 +60,43 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #D6CEBE; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #BDB3A1; }
+
+  button,
+  a[role='button'] {
+    transition-property: background-color, color, border-color, box-shadow, opacity;
+    transition-duration: 180ms;
+    transition-timing-function: ease;
+  }
+
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
   .card {
     @apply bg-white border border-[#E5DFD5] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.03)];
+  }
+
+  /*
+    Forest-green and plum fills used as action buttons. Hover must keep a light
+    label — several pages set a dark hover background without an explicit
+    hover:text, which made the original (or inherited) text colour unreadable.
+  */
+  button.bg-\[\#1A3022\]:hover,
+  a.bg-\[\#1A3022\]:hover,
+  button.bg-\[\#274433\]:hover,
+  a.bg-\[\#274433\]:hover,
+  button.bg-\[\#4A235A\]:hover,
+  a.bg-\[\#4A235A\]:hover,
+  button.bg-\[\#3d1c4a\]:hover,
+  a.bg-\[\#3d1c4a\]:hover,
+  button.bg-primary:hover,
+  a.bg-primary:hover,
+  button.bg-accent:hover,
+  a.bg-accent:hover {
+    color: var(--color-primary-fg);
   }
 }

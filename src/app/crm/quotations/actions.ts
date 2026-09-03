@@ -2,13 +2,41 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { getProfile } from '@/lib/auth'
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  draft: ['sent'],
+  sent: ['accepted', 'rejected', 'expired'],
+  accepted: [],
+  rejected: [],
+  expired: ['sent'],
+}
+
 export async function updateQuotationStatus(quotationId: string, newStatus: string) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!['admin', 'sales', 'management'].includes(profile.role)) {
+    return { error: 'Not permitted to change quotation status' }
+  }
+
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const { data: quote, error: readError } = await supabase
+    .from('quotations')
+    .select('id, status')
+    .eq('id', quotationId)
+    .maybeSingle()
+  if (readError) return { error: readError.message }
+  if (!quote) return { error: 'Quotation not found' }
+
+  const current = quote.status || 'draft'
+  if (!(ALLOWED_TRANSITIONS[current] || []).includes(newStatus)) {
+    return { error: `A ${current} quotation cannot move to ${newStatus}` }
+  }
+
   const { error } = await supabase.from('quotations').update({ status: newStatus }).eq('id', quotationId)
   if (error) return { error: error.message }
+
   revalidatePath(`/crm/quotations/${quotationId}`)
+  revalidatePath('/crm/quotations')
   return { success: true }
 }
 export async function convertToOrder(quotationId: string) {

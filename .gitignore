@@ -31,7 +31,15 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
+# env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# local deploy helpers with tokens
+deploy_full.py
+deploy-all-ready.json
+scripts/_ship.py
+scripts/_ship_log.txt
 
 # vercel
 .vercel

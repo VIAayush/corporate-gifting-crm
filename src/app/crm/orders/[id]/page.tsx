@@ -2,11 +2,26 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import { advanceOrderStatus, assignSupplier, assignCourier } from '../actions'
-import { ShoppingBag, ChevronRight, Truck, Printer, PackageCheck, AlertCircle } from 'lucide-react'
-
-const STATUS_STEPS = ['received', 'planning', 'supplier_coordination', 'printing', 'quality_check', 'dispatch', 'delivered']
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import {
+  advanceOrderStatus,
+  assignSupplier,
+  assignCourier,
+  assignPrintingVendor,
+  recordDelivery,
+  saveOrderCosting,
+  handOffOrder,
+} from '../actions'
+import { getProfile, canSeeCosts, canChangeOrderStage, applyOrderScope } from '@/lib/auth'
+import {
+  ORDER_LIFECYCLE,
+  ORDER_STATUS_LABELS,
+  orderHealth,
+  HEALTH_LABELS,
+  HEALTH_STYLES,
+  lifecycleIndex,
+} from '@/lib/order-workflow'
+import { ShoppingBag, ChevronRight } from 'lucide-react'
 
 export default async function OrderDetailPage({
   params,
@@ -17,98 +32,123 @@ export default async function OrderDetailPage({
 }) {
   const { id } = await params
   const { tab = 'details' } = await searchParams
-  
+  const profile = await getProfile()
+  if (!profile) return redirect('/login')
+  if (profile.role === 'client_admin') return redirect('/portal/catalogue')
+
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const [
-    { data: order },
+    orderRes,
     { data: orderItems },
     { data: history },
+    { data: assignments },
     { data: suppliers },
     { data: printingVendors },
-    { data: courierPartners }
+    { data: courierPartners },
+    { data: departments },
+    { data: staff },
   ] = await Promise.all([
-    supabase
-      .from('orders')
-      .select(`
-        *,
-        company:companies(id, name),
-        supplier:suppliers(id, name),
-        printing_vendor:printing_vendors(id, name),
-        courier_partner:courier_partners(id, name),
-        quotation:quotations(id, quotation_number),
-        requirement:requirements(id, name)
-      `)
-      .eq('id', id)
-      .single(),
+    applyOrderScope(
+      supabase
+        .from('orders')
+        .select(`
+          *,
+          company:companies(id, name),
+          supplier:suppliers(id, name),
+          printing_vendor:printing_vendors(id, name),
+          courier_partner:courier_partners(id, name),
+          quotation:quotations(id, quotation_number),
+          requirement:requirements(id, name),
+          assignee:assigned_to(id, full_name),
+          department:current_department_id(id, name),
+          campaign:campaign_id(id, name)
+        `)
+        .eq('id', id),
+      profile
+    ).maybeSingle(),
     supabase.from('order_items').select('*, product:products(id, name, sku)').eq('order_id', id),
-    supabase.from('order_status_history').select('*, changer:profiles(id, full_name)').eq('order_id', id).order('created_at', { ascending: false }),
+    supabase.from('order_status_history').select('*, changer:changed_by(id, full_name)').eq('order_id', id).order('changed_at', { ascending: false }),
+    supabase.from('order_assignments').select('*, assignee:assigned_to(full_name), department:department_id(name), assigner:assigned_by(full_name)').eq('order_id', id).order('created_at', { ascending: false }),
     supabase.from('suppliers').select('id, name').order('name'),
     supabase.from('printing_vendors').select('id, name').order('name'),
-    supabase.from('courier_partners').select('id, name').order('name')
+    supabase.from('courier_partners').select('id, name').order('name'),
+    supabase.from('departments').select('id, name, slug, manager_id').order('name'),
+    supabase.from('profiles').select('id, full_name, department_id').in('role', ['admin', 'sales', 'operations', 'accounts', 'management']).eq('is_active', true).order('full_name'),
   ])
 
+  const order = orderRes.data
   if (!order) notFound()
 
-  const currentStepIndex = STATUS_STEPS.indexOf(order.status)
-  const isDelivered = order.status === 'delivered'
+  const currentStepIndex = lifecycleIndex(order.status)
+  const isDelivered = order.status === 'delivered' || order.status === 'cancelled'
+  const health = orderHealth(order.status, order.expected_delivery_date, order.stage_due_at)
+  const showCosts = canSeeCosts(profile.role)
+  const canStage = canChangeOrderStage(profile.role)
+  const assignee = Array.isArray(order.assignee) ? order.assignee[0] : order.assignee
+  const department = Array.isArray(order.department) ? order.department[0] : order.department
+  const campaign = Array.isArray(order.campaign) ? order.campaign[0] : order.campaign
+  const tabs = showCosts
+    ? ['details', 'products', 'vendors', 'financials', 'history']
+    : ['details', 'products', 'vendors', 'history']
 
   const handleAdvance = async () => {
     'use server'
-    await advanceOrderStatus(order.id)
+    await advanceOrderStatus(id, 'Advanced from order detail')
   }
 
   const handleAssignSupplier = async (formData: FormData) => {
     'use server'
     const sId = formData.get('supplier_id') as string
-    await assignSupplier(order.id, sId)
+    await assignSupplier(id, sId)
   }
 
   const handleAssignCourier = async (formData: FormData) => {
     'use server'
     const cId = formData.get('courier_partner_id') as string
     const tracking = formData.get('tracking_number') as string
-    await assignCourier(order.id, cId, tracking)
+    await assignCourier(id, cId, tracking)
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <BackButton href="/crm/orders" label="Back to Orders" />
+    <div className="max-w-5xl mx-auto space-y-6 p-6">
+      <BackButton href="/crm/order-management" label="Back to Order Control" />
 
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="p-1.5 bg-[#4A235A]/10 text-[#4A235A] rounded-lg">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="p-1.5 bg-[#1A3022]/10 text-[#1A3022] rounded-lg">
               <ShoppingBag size={16} />
             </span>
             <span className="font-mono text-xs font-bold text-gray-500">{order.order_number}</span>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-[#4A235A] uppercase">
-              {order.status.replace('_', ' ')}
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-[#1A3022] uppercase">
+              {ORDER_STATUS_LABELS[order.status] || order.status}
+            </span>
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${HEALTH_STYLES[health]}`}>
+              {HEALTH_LABELS[health]}
             </span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Order for {(order.company as any)?.name || 'Client'}
+            {(order.company as { name?: string })?.name || 'Client'}
+            {campaign?.name ? ` · ${campaign.name}` : ''}
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            PO Ref: <span className="font-medium text-gray-700">{order.po_number || '?'}</span> ? 
-            Expected Delivery: <span className="font-medium text-gray-700">{formatDate(order.expected_delivery_date)}</span>
+          <p className="text-xs text-gray-500 mt-1">
+            Department: <span className="font-medium text-gray-700">{department?.name || '—'}</span>
+            {' · '}Assigned: <span className="font-medium text-gray-700">{assignee?.full_name || 'Unassigned'}</span>
+            {' · '}Stage due: <span className="font-medium text-gray-700">{formatDate(order.stage_due_at)}</span>
+            {' · '}Delivery: <span className="font-medium text-gray-700">{formatDate(order.expected_delivery_date)}</span>
           </p>
+          {order.next_action && <p className="text-xs mt-2 text-[#1A3022]">Next: {order.next_action}</p>}
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right">
             <p className="text-[10px] uppercase font-bold text-gray-400">Order Value</p>
-            <p className="text-xl font-bold text-[#4A235A]">{formatCurrency(order.order_value)}</p>
+            <p className="text-xl font-bold text-[#1A3022]">{formatCurrency(order.order_value)}</p>
           </div>
-
-          {!isDelivered && (
+          {canStage && !isDelivered && (
             <form action={handleAdvance}>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-[#4A235A] hover:bg-[#3d1c4a] text-white rounded-lg text-xs font-semibold shadow-sm transition-colors inline-flex items-center gap-1.5"
-              >
+              <button type="submit" className="px-4 py-2 bg-[#1A3022] text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5">
                 Advance Stage <ChevronRight size={14} />
               </button>
             </form>
@@ -116,35 +156,66 @@ export default async function OrderDetailPage({
         </div>
       </div>
 
-      {/* Stage Progression Timeline */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
-        <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Fulfilment Progression</h3>
-        <div className="relative">
-          <div className="overflow-hidden h-2 mb-4 text-xs flex rounded-full bg-gray-100">
-            <div 
-              style={{ width: `${Math.max(8, (currentStepIndex + 1) / STATUS_STEPS.length * 100)}%` }} 
-              className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-[#4A235A] transition-all duration-500"
-            />
-          </div>
-          <div className="grid grid-cols-7 text-center">
-            {STATUS_STEPS.map((step, idx) => (
-              <div key={step} className={`text-[10px] font-semibold capitalize ${idx <= currentStepIndex ? 'text-[#4A235A]' : 'text-gray-400'}`}>
-                {step.replace('_', ' ')}
-              </div>
-            ))}
-          </div>
+        <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Lifecycle</h3>
+        <div className="grid grid-cols-4 md:grid-cols-8 gap-2 text-center">
+          {ORDER_LIFECYCLE.map((step, idx) => (
+            <div key={step} className={`text-[10px] font-semibold ${idx <= currentStepIndex ? 'text-[#1A3022]' : 'text-gray-400'}`}>
+              {idx < currentStepIndex ? '✓' : idx === currentStepIndex ? '●' : '○'} {ORDER_STATUS_LABELS[step]}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Tabs */}
+      {canStage && !isDelivered && (
+        <form action={handOffOrder} className="bg-white p-6 rounded-2xl border border-gray-200 grid md:grid-cols-2 gap-3 text-xs">
+          <input type="hidden" name="order_id" value={order.id} />
+          <h3 className="md:col-span-2 font-bold text-sm">Stage hand-off</h3>
+          <label className="space-y-1">
+            <span className="text-gray-500">New stage</span>
+            <select name="status" defaultValue={order.status} className="w-full border rounded-lg px-2 py-2">
+              {ORDER_LIFECYCLE.map((s) => <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>)}
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-gray-500">Department</span>
+            <select name="department_id" defaultValue={order.current_department_id || ''} className="w-full border rounded-lg px-2 py-2">
+              <option value="">Keep current</option>
+              {(departments || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-gray-500">Assignee</span>
+            <select name="assigned_to" defaultValue={order.assigned_to || ''} className="w-full border rounded-lg px-2 py-2">
+              <option value="">Keep current</option>
+              {(staff || []).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-gray-500">Stage due date</span>
+            <input type="date" name="stage_due" defaultValue={order.stage_due_at || ''} className="w-full border rounded-lg px-2 py-2" />
+          </label>
+          <label className="md:col-span-2 space-y-1">
+            <span className="text-gray-500">Next action</span>
+            <input name="next_action" defaultValue={order.next_action || ''} className="w-full border rounded-lg px-2 py-2" />
+          </label>
+          <label className="md:col-span-2 space-y-1">
+            <span className="text-gray-500">Comment / reason</span>
+            <textarea name="comment" rows={2} className="w-full border rounded-lg px-2 py-2" placeholder="Why is this moving?" />
+          </label>
+          <button className="md:col-span-2 bg-[#1A3022] text-white rounded-lg py-2 font-semibold">Record hand-off</button>
+        </form>
+      )}
+
       <div className="border-b border-gray-200">
         <nav className="flex space-x-6">
-          {['details', 'products', 'vendors', 'financials', 'history'].map((t) => (
+          {tabs.map((t) => (
             <Link
               key={t}
               href={`?tab=${t}`}
               className={`pb-3 text-xs font-semibold capitalize transition-colors border-b-2 ${
-                tab === t ? 'border-[#4A235A] text-[#4A235A]' : 'border-transparent text-gray-500 hover:text-gray-900'
+                tab === t ? 'border-[#1A3022] text-[#1A3022]' : 'border-transparent text-gray-500'
               }`}
             >
               {t}
@@ -155,175 +226,168 @@ export default async function OrderDetailPage({
 
       {tab === 'details' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 text-xs space-y-3">
-            <h3 className="font-bold text-sm text-gray-900 pb-2 border-b">Fulfillment & Shipping</h3>
-            <div><span className="text-gray-500 w-32 inline-block">PO Number:</span> {order.po_number || '?'}</div>
-            <div><span className="text-gray-500 w-32 inline-block">Dispatch Date:</span> {formatDate(order.dispatch_date)}</div>
-            <div><span className="text-gray-500 w-32 inline-block">Courier Partner:</span> {(order.courier_partner as any)?.name || '?'}</div>
-            <div><span className="text-gray-500 w-32 inline-block">Tracking / AWB:</span> {order.tracking_number || '?'}</div>
-            <div><span className="text-gray-500 w-32 inline-block">Linked Quote:</span> {(order.quotation as any)?.quotation_number || '?'}</div>
-            <div><span className="text-gray-500 w-32 inline-block">Linked Requirement:</span> {(order.requirement as any)?.name || '?'}</div>
+          <div className="bg-white p-6 rounded-2xl border text-xs space-y-3">
+            <h3 className="font-bold text-sm pb-2 border-b">Fulfillment</h3>
+            <div>PO: {order.po_number || '—'}</div>
+            <div>Dispatch: {formatDate(order.dispatch_date)}</div>
+            <div>Supplier: {(order.supplier as { name?: string })?.name || '—'}</div>
+            <div>Printing vendor: {(order.printing_vendor as { name?: string })?.name || '—'}</div>
+            <div>Courier: {(order.courier_partner as { name?: string })?.name || '—'}</div>
+            <div>Tracking: {order.tracking_number || '—'}</div>
+            <div>Expected delivery: {formatDate(order.expected_delivery_date)}</div>
+            <div>Actual delivery: {formatDate(order.actual_delivery_date)}</div>
+            <div>Quote: {(order.quotation as { quotation_number?: string })?.quotation_number || '—'}</div>
           </div>
-
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 text-xs space-y-3">
-            <h3 className="font-bold text-sm text-gray-900 pb-2 border-b">Operational Notes</h3>
-            <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-              {order.notes || 'No special operational instructions recorded for this order.'}
-            </p>
+          <div className="bg-white p-6 rounded-2xl border text-xs space-y-3">
+            <h3 className="font-bold text-sm pb-2 border-b">Operational notes</h3>
+            <p className="whitespace-pre-wrap">{order.notes || 'No special operational instructions.'}</p>
           </div>
         </div>
       )}
 
       {tab === 'products' && (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="bg-white rounded-2xl border overflow-hidden">
           <table className="w-full text-left text-xs">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="p-3.5 font-semibold text-gray-500">Item</th>
-                <th className="p-3.5 font-semibold text-gray-500 text-right">Qty</th>
-                <th className="p-3.5 font-semibold text-gray-500 text-right">Unit Price</th>
-                <th className="p-3.5 font-semibold text-gray-500 text-right">Line Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {orderItems?.map((item: any) => (
-                <tr key={item.id} className="hover:bg-gray-50/50">
-                  <td className="p-3.5">
-                    <div className="font-bold text-gray-900">{item.product?.name || 'Item'}</div>
-                    <div className="text-gray-400 font-mono text-[10px]">{item.product?.sku}</div>
-                  </td>
-                  <td className="p-3.5 text-right font-medium">{item.quantity}</td>
-                  <td className="p-3.5 text-right">{formatCurrency(item.unit_price)}</td>
-                  <td className="p-3.5 text-right font-bold text-gray-900">{formatCurrency(item.line_total)}</td>
+            <thead className="bg-gray-50"><tr>
+              <th className="p-3">Item</th><th className="p-3 text-right">Qty</th><th className="p-3 text-right">Unit</th><th className="p-3 text-right">Total</th>
+            </tr></thead>
+            <tbody>
+              {orderItems?.map((item: { id: string; quantity: number; unit_price: number; line_total: number; product?: { name?: string; sku?: string } }) => (
+                <tr key={item.id} className="border-t">
+                  <td className="p-3">{item.product?.name}<div className="font-mono text-[10px] text-gray-400">{item.product?.sku}</div></td>
+                  <td className="p-3 text-right">{item.quantity}</td>
+                  <td className="p-3 text-right">{formatCurrency(item.unit_price)}</td>
+                  <td className="p-3 text-right">{formatCurrency(item.line_total)}</td>
                 </tr>
               ))}
-              {(!orderItems || orderItems.length === 0) && (
-                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No items found.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
       )}
 
       {tab === 'vendors' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 space-y-4">
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Assign Primary Supplier</h3>
-            <form action={handleAssignSupplier} className="space-y-3">
-              <select
-                name="supplier_id"
-                defaultValue={order.supplier_id || ''}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white"
-              >
-                <option value="">Select Supplier</option>
-                {suppliers?.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-[#4A235A] text-white text-xs font-semibold rounded-lg hover:bg-[#3d1c4a] transition-colors"
-              >
-                Save Supplier Assignment
-              </button>
-            </form>
-          </div>
+        <div className="grid md:grid-cols-2 gap-6">
+          <form action={handleAssignSupplier} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+            <h3 className="font-bold">Supplier</h3>
+            <select name="supplier_id" defaultValue={order.supplier_id || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50">
+              <option value="">Select</option>
+              {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save supplier</button>}
+          </form>
 
-          <div className="bg-white p-6 rounded-2xl border border-gray-200 space-y-4">
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Courier & Dispatch Details</h3>
-            <form action={handleAssignCourier} className="space-y-3">
-              <select
-                name="courier_partner_id"
-                defaultValue={order.courier_partner_id || ''}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white"
-              >
-                <option value="">Select Courier Partner</option>
-                {courierPartners?.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                name="tracking_number"
-                defaultValue={order.tracking_number || ''}
-                placeholder="Tracking / AWB Number"
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 bg-[#4A235A] text-white text-xs font-semibold rounded-lg hover:bg-[#3d1c4a] transition-colors"
-              >
-                Save Shipping Info
-              </button>
-            </form>
-          </div>
+          <form action={assignPrintingVendor} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+            <input type="hidden" name="order_id" value={order.id} />
+            <h3 className="font-bold">Printing vendor</h3>
+            <select name="printing_vendor_id" defaultValue={order.printing_vendor_id || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50">
+              <option value="">Select</option>
+              {printingVendors?.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save printing vendor</button>}
+          </form>
+
+          <form action={handleAssignCourier} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+            <h3 className="font-bold">Courier</h3>
+            <select name="courier_partner_id" defaultValue={order.courier_partner_id || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50">
+              <option value="">Select</option>
+              {courierPartners?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <input name="tracking_number" defaultValue={order.tracking_number || ''} placeholder="AWB / tracking number" disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50" />
+            {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save shipping</button>}
+          </form>
+
+          <form action={recordDelivery} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+            <input type="hidden" name="order_id" value={order.id} />
+            <h3 className="font-bold">Dispatch &amp; delivery</h3>
+            <label className="block space-y-1">
+              <span className="text-gray-500">Dispatch date</span>
+              <input type="date" name="dispatch_date" defaultValue={order.dispatch_date || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-gray-500">Expected delivery</span>
+              <input type="date" name="expected_delivery_date" defaultValue={order.expected_delivery_date || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-gray-500">Actual delivery</span>
+              <input type="date" name="actual_delivery_date" defaultValue={order.actual_delivery_date || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50" />
+            </label>
+            {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save delivery dates</button>}
+          </form>
         </div>
       )}
 
-      {tab === 'financials' && (
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
-          <h3 className="font-bold text-sm text-gray-900 pb-3 border-b">Order Financials & Profitability</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
-            <div className="space-y-3">
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Product Costs:</span>
-                <span className="font-semibold">{formatCurrency(order.product_cost)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Printing & Branding:</span>
-                <span className="font-semibold">{formatCurrency(order.printing_cost)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Courier & Logistics:</span>
-                <span className="font-semibold">{formatCurrency(order.courier_cost)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Other Costs:</span>
-                <span className="font-semibold">{formatCurrency(order.other_cost)}</span>
-              </div>
-              <div className="flex justify-between py-2 bg-gray-50 p-2.5 rounded-lg font-bold text-gray-900">
-                <span>Total Cost:</span>
-                <span>{formatCurrency(order.total_cost)}</span>
-              </div>
-            </div>
+      {tab === 'financials' && showCosts && (
+        <div className="grid md:grid-cols-2 gap-6">
+          <form action={saveOrderCosting} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+            <input type="hidden" name="order_id" value={order.id} />
+            <h3 className="font-bold text-sm">Order costing</h3>
+            {(
+              [
+                ['product_cost', 'Product cost'],
+                ['printing_cost', 'Printing cost'],
+                ['courier_cost', 'Courier cost'],
+                ['other_cost', 'Other cost'],
+              ] as const
+            ).map(([field, label]) => (
+              <label key={field} className="block space-y-1">
+                <span className="text-gray-500">{label}</span>
+                <input
+                  type="number"
+                  name={field}
+                  min={0}
+                  step="0.01"
+                  defaultValue={order[field] ?? 0}
+                  className="w-full border rounded-lg px-2 py-2"
+                />
+              </label>
+            ))}
+            <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg font-semibold">Save costing</button>
+          </form>
 
-            <div className="space-y-3">
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Selling Price (Order Value):</span>
-                <span className="font-bold text-gray-900">{formatCurrency(order.order_value)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="text-gray-500">Gross Profit:</span>
-                <span className="font-bold text-green-700">{formatCurrency(order.gross_profit)}</span>
-              </div>
-              <div className="flex justify-between py-2 bg-green-50 p-2.5 rounded-lg font-bold text-green-800">
-                <span>Gross Margin:</span>
-                <span>{order.order_value ? Math.round(((order.gross_profit || 0) / order.order_value) * 100) : 0}%</span>
-              </div>
+          <div className="bg-white p-6 rounded-2xl border text-xs space-y-3">
+            <h3 className="font-bold text-sm">Internal profitability</h3>
+            <div className="flex justify-between"><span>Revenue</span><span>{formatCurrency(order.order_value)}</span></div>
+            <div className="flex justify-between text-gray-500"><span>Product cost</span><span>{formatCurrency(order.product_cost)}</span></div>
+            <div className="flex justify-between text-gray-500"><span>Printing cost</span><span>{formatCurrency(order.printing_cost)}</span></div>
+            <div className="flex justify-between text-gray-500"><span>Courier cost</span><span>{formatCurrency(order.courier_cost)}</span></div>
+            <div className="flex justify-between text-gray-500"><span>Other cost</span><span>{formatCurrency(order.other_cost)}</span></div>
+            <div className="flex justify-between pt-2 border-t"><span>Total cost</span><span>{formatCurrency(order.total_cost)}</span></div>
+            <div className="flex justify-between font-semibold text-[#1A3022]"><span>Gross profit</span><span>{formatCurrency(order.gross_profit)}</span></div>
+            <div className="flex justify-between font-semibold">
+              <span>Margin</span>
+              <span>{Number(order.order_value) > 0 ? `${((Number(order.gross_profit || 0) / Number(order.order_value)) * 100).toFixed(1)}%` : '—'}</span>
             </div>
+            <p className="text-[10px] text-gray-400 pt-2 border-t">
+              Total cost and gross profit are recalculated on the server and cannot be overwritten directly.
+            </p>
           </div>
         </div>
       )}
 
       {tab === 'history' && (
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <div className="space-y-4">
-            {history?.map((entry: any) => (
+        <div className="bg-white p-6 rounded-2xl border space-y-4">
+          {(history || []).map((entry: { id: string; from_status?: string; to_status?: string; note?: string; changed_at?: string; created_at?: string; changer?: { full_name?: string } }) => {
+            const changer = Array.isArray(entry.changer) ? entry.changer[0] : entry.changer
+            return (
               <div key={entry.id} className="flex gap-3 text-xs">
-                <div className="w-2.5 h-2.5 mt-1 rounded-full bg-[#4A235A] flex-shrink-0" />
+                <div className="w-2.5 h-2.5 mt-1 rounded-full bg-[#1A3022]" />
                 <div>
-                  <p className="font-bold text-gray-900 capitalize">{entry.to_status?.replace('_', ' ')}</p>
-                  <p className="text-gray-400 text-[10px]">
-                    {formatDate(entry.created_at)} ? by {(entry.changer as any)?.full_name || 'Operations'}
-                  </p>
-                  {entry.note && <p className="text-gray-600 mt-1 bg-gray-50 p-2 rounded">{entry.note}</p>}
+                  <p className="font-bold">{ORDER_STATUS_LABELS[entry.from_status || ''] || entry.from_status || '—'} → {ORDER_STATUS_LABELS[entry.to_status || ''] || entry.to_status}</p>
+                  <p className="text-gray-400">{formatDateTime(entry.changed_at || entry.created_at)} · {changer?.full_name || 'Team'}</p>
+                  {entry.note && <p className="mt-1 bg-gray-50 p-2 rounded">{entry.note}</p>}
                 </div>
               </div>
-            ))}
-            {(!history || history.length === 0) && (
-              <p className="text-xs text-gray-400">No status changes logged yet.</p>
-            )}
-          </div>
+            )
+          })}
+          {(assignments || []).map((a: { id: string; note?: string; created_at: string; assignee?: { full_name?: string }; department?: { name?: string }; assigner?: { full_name?: string } }) => (
+            <div key={a.id} className="text-xs text-gray-600 pl-5">
+              Assigned to {(Array.isArray(a.assignee) ? a.assignee[0] : a.assignee)?.full_name || '—'}
+              {(Array.isArray(a.department) ? a.department[0] : a.department)?.name ? ` · ${(Array.isArray(a.department) ? a.department[0] : a.department)?.name}` : ''}
+              {' · '}{formatDateTime(a.created_at)}
+              {a.note ? ` · ${a.note}` : ''}
+            </div>
+          ))}
+          {(!history || history.length === 0) && <p className="text-xs text-gray-400">No stage history yet.</p>}
         </div>
       )}
     </div>

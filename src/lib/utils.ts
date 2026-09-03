@@ -69,24 +69,17 @@ export function slugify(str: string) {
 }
 
 export const ORDER_STATUSES = [
-  "received",
-  "planning",
-  "supplier_coordination",
+  "created",
+  "confirmed",
+  "procurement",
   "printing",
   "quality_check",
-  "dispatch",
+  "ready_to_dispatch",
+  "dispatched",
   "delivered",
 ] as const
 
-export const ORDER_STATUS_LABELS: Record<string, string> = {
-  received: "Order Received",
-  planning: "Planning",
-  supplier_coordination: "Supplier Coordination",
-  printing: "Printing / Customisation",
-  quality_check: "Quality Check",
-  dispatch: "Dispatch",
-  delivered: "Delivered",
-}
+export { ORDER_STATUS_LABELS } from "@/lib/order-workflow"
 
 export const LEAD_STAGE_LABELS: Record<string, string> = {
   cold: "Cold",

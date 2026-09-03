@@ -10,7 +10,7 @@ const STATUS_COLORS: Record<string, string> = {
   lost: 'bg-red-100 text-red-800'
 }
 
-export default async function RequirementsPage(props: { searchParams: { status?: string } }) {
+export default async function RequirementsPage(props: { searchParams: Promise<{ status?: string }> }) {
   const searchParams = await props.searchParams
   const statusFilter = searchParams.status || 'all'
   

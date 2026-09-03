@@ -1,8 +1,18 @@
-export type Role = "admin" | "sales" | "operations" | "accounts" | "management" | "client_admin"
+export type Role = "admin" | "sales" | "operations" | "accounts" | "management" | "client_admin" | "client_user"
 export type LeadStage = "cold" | "warm" | "hot" | "client" | "regular_client"
 export type LeadSource = "referral" | "website" | "direct" | "social_media" | "event" | "other"
 export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" | "expired"
-export type OrderStatus = "received" | "planning" | "supplier_coordination" | "printing" | "quality_check" | "dispatch" | "delivered"
+export type OrderStatus =
+  | "created"
+  | "confirmed"
+  | "in_progress"
+  | "procurement"
+  | "printing"
+  | "quality_check"
+  | "ready_to_dispatch"
+  | "dispatched"
+  | "delivered"
+  | "cancelled"
 export type InvoiceStatus = "draft" | "issued" | "partially_paid" | "paid" | "overdue" | "cancelled"
 export type ProductStatus = "active" | "inactive" | "discontinued"
 export type RequirementStatus = "active" | "closed" | "won" | "lost"
@@ -275,6 +285,8 @@ export interface Order {
   total_cost: number | null
   gross_profit: number | null
   priority: number | null
+  current_department_id: string | null
+  campaign_id: string | null
   created_at: string
   updated_at: string
   // Joined
@@ -306,7 +318,8 @@ export interface OrderStatusHistory {
   to_status: string
   changed_by: string
   note: string | null
-  created_at: string
+  changed_at?: string
+  created_at?: string
   changer?: Pick<Profile, "id" | "full_name"> | null
 }
 

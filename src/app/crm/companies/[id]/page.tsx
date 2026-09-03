@@ -3,6 +3,9 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
 import { CompanyAvatar } from '@/components/ui/avatar'
+import { ProductImage } from '@/components/ui/product-image'
+import { Breadcrumbs } from '@/components/ui/breadcrumbs'
+import { uploadCompanyLogo, removeCompanyLogo } from '../actions'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Plus, Package, Trash2, Globe, Lock, Users, TrendingUp, ClipboardList, ShoppingBag } from 'lucide-react'
 import { grantCompanyProductAccess, revokeCompanyProductAccess } from '@/app/crm/products/actions'
@@ -28,6 +31,7 @@ export default async function CompanyDetailPage({
     { data: requirements },
     { data: quotations },
     { data: orders },
+    { data: invoices },
     { data: companyProducts },
     { data: allProducts }
   ] = await Promise.all([
@@ -37,6 +41,7 @@ export default async function CompanyDetailPage({
     supabase.from('requirements').select('*').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('quotations').select('*').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('orders').select('*').eq('company_id', id).order('created_at', { ascending: false }),
+    supabase.from('invoices').select('id, invoice_number, amount, status, created_at').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('company_product_access').select('*, product:products(*)').eq('company_id', id),
     supabase.from('products').select('id, name, sku, price').eq('status', 'active').order('name')
   ])
@@ -58,6 +63,16 @@ export default async function CompanyDetailPage({
     await revokeCompanyProductAccess(productId, id)
   }
 
+  const uploadLogoAction = async (formData: FormData) => {
+    'use server'
+    await uploadCompanyLogo(formData)
+  }
+
+  const removeLogoAction = async (formData: FormData) => {
+    'use server'
+    await removeCompanyLogo(formData)
+  }
+
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'catalogue', label: `Personalized Catalogue (${companyProducts?.length || 0})` },
@@ -66,29 +81,62 @@ export default async function CompanyDetailPage({
     { id: 'requirements', label: `Requirements (${requirements?.length || 0})` },
     { id: 'quotations', label: `Quotations (${quotations?.length || 0})` },
     { id: 'orders', label: `Orders (${orders?.length || 0})` },
+    { id: 'invoices', label: `Invoices (${invoices?.length || 0})` },
   ]
 
   return (
     <div className="space-y-6">
       <BackButton href="/crm/companies" label="Back to Companies" />
 
-      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex items-start justify-between">
+      <Breadcrumbs
+        items={[
+          { label: 'Companies', href: '/crm/companies' },
+          { label: company.name },
+        ]}
+      />
+
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <CompanyAvatar name={company.name} logoPath={company.logo_path} size="lg" />
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{company.name}</h1>
-            <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
               <span>{company.industry || 'Corporate Client'}</span>
-              <span>?</span>
+              <span aria-hidden="true">·</span>
               <span>{company.city || 'India'}</span>
               {company.website && (
                 <>
-                  <span>?</span>
-                  <a href={company.website} target="_blank" rel="noreferrer" className="text-[#4A235A] hover:underline font-medium">
+                  <span aria-hidden="true">·</span>
+                  <a href={company.website} target="_blank" rel="noreferrer" className="text-[var(--color-primary)] hover:underline font-medium">
                     {company.website}
                   </a>
                 </>
               )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 mt-3">
+              <form action={uploadLogoAction} className="flex items-center gap-2">
+                <input type="hidden" name="company_id" value={company.id} />
+                <input
+                  type="file"
+                  name="logo"
+                  accept="image/png,image/jpeg,image/webp"
+                  required
+                  className="text-[11px] file:mr-2 file:px-2 file:py-1 file:rounded-md file:border file:border-gray-200 file:bg-white file:text-[11px] file:font-medium"
+                />
+                <button className="px-2.5 py-1 text-[11px] font-medium rounded-md border border-gray-200 hover:bg-gray-50">
+                  {company.logo_path ? 'Replace logo' : 'Upload logo'}
+                </button>
+              </form>
+              {company.logo_path && (
+                <form action={removeLogoAction}>
+                  <input type="hidden" name="company_id" value={company.id} />
+                  <button className="px-2.5 py-1 text-[11px] font-medium rounded-md border border-gray-200 text-red-600 hover:bg-red-50">
+                    Remove
+                  </button>
+                </form>
+              )}
+              <span className="text-[10px] text-gray-400">PNG, JPG or WebP · max 2 MB</span>
             </div>
           </div>
         </div>
@@ -176,13 +224,7 @@ export default async function CompanyDetailPage({
                   <tr key={cp.product_id} className="hover:bg-gray-50/80">
                     <td className="px-4 py-3">
                       <Link href={`/crm/products/${cp.product_id}`} className="flex items-center gap-3 group">
-                        <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
-                          {cp.product?.image_url ? (
-                            <img src={cp.product.image_url} alt={cp.product.name} className="w-full h-full object-contain p-1" />
-                          ) : (
-                            <Package size={16} className="text-gray-400" />
-                          )}
-                        </div>
+                        <ProductImage src={cp.product?.image_url} alt={cp.product?.name || 'Product'} size="xs" className="w-9 h-9 rounded-lg border border-gray-200" />
                         <div>
                           <p className="font-bold text-gray-900 group-hover:text-[#4A235A]">{cp.product?.name}</p>
                           <p className="font-mono text-[10px] text-gray-400">{cp.product?.sku}</p>
@@ -367,6 +409,36 @@ export default async function CompanyDetailPage({
               ))}
               {(!orders || orders.length === 0) && (
                 <tr><td colSpan={4} className="p-6 text-center text-gray-400">No orders placed yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'invoices' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Invoice #</th>
+                <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Amount</th>
+                <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {invoices?.map((inv) => (
+                <tr key={inv.id}>
+                  <td className="px-4 py-2.5 font-semibold text-[#4A235A]">
+                    <Link href={`/crm/invoices/${inv.id}`}>{inv.invoice_number}</Link>
+                  </td>
+                  <td className="px-4 py-2.5 font-bold">{formatCurrency(inv.amount)}</td>
+                  <td className="px-4 py-2.5 capitalize">{inv.status}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{formatDate(inv.created_at)}</td>
+                </tr>
+              ))}
+              {(!invoices || invoices.length === 0) && (
+                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No invoices recorded yet.</td></tr>
               )}
             </tbody>
           </table>

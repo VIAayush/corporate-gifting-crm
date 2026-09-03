@@ -1,80 +1,204 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDate, getInitials } from '@/lib/utils'
+import { requireStaff, applyOrderScope, canChangeOrderStage } from '@/lib/auth'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import {
+  ORDER_LIFECYCLE,
+  ORDER_STATUS_LABELS,
+  orderHealth,
+  HEALTH_LABELS,
+  HEALTH_STYLES,
+} from '@/lib/order-workflow'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { OrderKanban } from '@/components/orders/order-kanban'
 
-export default async function OrderManagementPage() {
+export default async function OrderControlCenterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    client?: string
+    department?: string
+    employee?: string
+    stage?: string
+    health?: string
+    sort?: string
+    view?: string
+    from?: string
+    to?: string
+  }>
+}) {
+  const profile = await requireStaff(['admin', 'operations', 'management', 'sales', 'accounts'])
+  const params = await searchParams
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const view = params.view === 'kanban' ? 'kanban' : 'table'
 
-  const { data: orders } = await supabase.from('orders').select('*, companies(name), owner:owner_id(full_name)').neq('status', 'delivered').order('expected_delivery', { ascending: true })
+  const [{ data: companies }, { data: departments }, { data: staff }] = await Promise.all([
+    supabase.from('companies').select('id, name').order('name'),
+    supabase.from('departments').select('id, name, slug').order('name'),
+    supabase.from('profiles').select('id, full_name').eq('is_active', true).in('role', ['admin', 'sales', 'operations', 'accounts', 'management']).order('full_name'),
+  ])
 
-  const active = orders?.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || 0
-  const inProduction = orders?.filter(o => o.status === 'in_production').length || 0
-  const dispatched = orders?.filter(o => o.status === 'dispatched').length || 0
+  let query = supabase
+    .from('orders')
+    .select(`
+      id, order_number, order_value, status, expected_delivery_date, updated_at, priority, stage_due_at, assigned_to, current_department_id, campaign_id,
+      company:companies(id, name),
+      assignee:assigned_to(id, full_name),
+      department:current_department_id(id, name),
+      campaign:campaign_id(id, name)
+    `)
 
-  const groupedOrders = orders?.reduce((acc: any, order) => {
-    if (!acc[order.status]) acc[order.status] = []
-    acc[order.status].push(order)
-    return acc
-  }, {}) || {}
+  query = applyOrderScope(query, profile)
+
+  if (params.client) query = query.eq('company_id', params.client)
+  if (params.department) query = query.eq('current_department_id', params.department)
+  if (params.employee) query = query.eq('assigned_to', params.employee)
+  if (params.stage) query = query.eq('status', params.stage)
+  if (params.from) query = query.gte('expected_delivery_date', params.from)
+  if (params.to) query = query.lte('expected_delivery_date', params.to)
+
+  const sort = params.sort || 'delivery'
+  if (sort === 'value') query = query.order('order_value', { ascending: false })
+  else if (sort === 'updated') query = query.order('updated_at', { ascending: false })
+  else if (sort === 'priority') query = query.order('priority', { ascending: true })
+  else query = query.order('expected_delivery_date', { ascending: true, nullsFirst: false })
+
+  const { data: orders } = await query.limit(200)
+
+  const rows = (orders || []).map((o) => {
+    const health = orderHealth(o.status, o.expected_delivery_date, o.stage_due_at)
+    return { ...o, health }
+  }).filter((o) => !params.health || o.health === params.health)
+
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v && k !== 'view') qs.set(k, v)
+  })
+  const filterQuery = qs.toString()
+  const tableHref = filterQuery ? `/crm/order-management?${filterQuery}` : '/crm/order-management'
+  const kanbanHref = filterQuery ? `/crm/order-management?${filterQuery}&view=kanban` : '/crm/order-management?view=kanban'
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-[var(--color-primary)] mb-6">Order Management</h1>
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-sm">
-          <p className="text-sm text-[var(--color-text-secondary)]">Active Orders</p>
-          <p className="text-xl font-semibold">{active}</p>
+    <div className="p-6 space-y-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--color-primary)]">Order Control Center</h1>
+          <p className="text-xs text-[#7A7267] mt-1">Who owns each order right now, and whether it is healthy.</p>
         </div>
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg shadow-sm">
-          <p className="text-sm text-amber-800">In Production</p>
-          <p className="text-xl font-semibold text-amber-900">{inProduction}</p>
-        </div>
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
-          <p className="text-sm text-blue-800">Dispatched</p>
-          <p className="text-xl font-semibold text-blue-900">{dispatched}</p>
+        <div className="flex gap-2 text-xs">
+          <Link href={tableHref} className={`px-3 py-1.5 rounded-lg border ${view === 'table' ? 'bg-[#1A3022] text-white border-[#1A3022]' : 'bg-white'}`}>Table</Link>
+          <Link href={kanbanHref} className={`px-3 py-1.5 rounded-lg border ${view === 'kanban' ? 'bg-[#1A3022] text-white border-[#1A3022]' : 'bg-white'}`}>Kanban</Link>
         </div>
       </div>
-      
-      <div className="flex gap-6 overflow-x-auto pb-4">
-        {['confirmed', 'in_production', 'dispatched'].map(status => (
-          <div key={status} className="min-w-[320px] bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <h2 className="font-semibold text-gray-700 mb-4 capitalize">{status.replace('_', ' ')} <span className="text-xs text-gray-500 font-normal ml-2">{groupedOrders[status]?.length || 0}</span></h2>
-            <div className="flex flex-col gap-3">
-              {groupedOrders[status]?.map((order: any) => {
-                const daysRemaining = Math.ceil((new Date(order.expected_delivery).getTime() - new Date().getTime()) / (1000 * 3600 * 24))
-                const isOverdue = daysRemaining < 0
+
+      <form className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 bg-white p-4 rounded-2xl border border-[#E5DFD5]">
+        {view === 'kanban' && <input type="hidden" name="view" value="kanban" />}
+        <select name="client" defaultValue={params.client || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="">All clients</option>
+          {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select name="department" defaultValue={params.department || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="">All departments</option>
+          {(departments || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select name="employee" defaultValue={params.employee || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="">All employees</option>
+          {(staff || []).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+        </select>
+        <select name="stage" defaultValue={params.stage || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="">All stages</option>
+          {ORDER_LIFECYCLE.map((s) => <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>)}
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select name="health" defaultValue={params.health || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="">All health</option>
+          <option value="on_track">On Track</option>
+          <option value="at_risk">At Risk</option>
+          <option value="delayed">Delayed</option>
+        </select>
+        <input type="date" name="from" defaultValue={params.from || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]" />
+        <input type="date" name="to" defaultValue={params.to || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]" />
+        <select name="sort" defaultValue={params.sort || 'delivery'} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
+          <option value="delivery">Delivery date</option>
+          <option value="value">Order value</option>
+          <option value="updated">Last updated</option>
+          <option value="priority">Priority</option>
+        </select>
+        <button className="text-xs font-semibold bg-[#1A3022] text-white rounded-lg px-3">Apply</button>
+      </form>
+
+      {view === 'kanban' ? (
+        <OrderKanban
+          canDrag={canChangeOrderStage(profile.role)}
+          orders={rows.map((o) => {
+            const company = Array.isArray(o.company) ? o.company[0] : o.company
+            const assignee = Array.isArray(o.assignee) ? o.assignee[0] : o.assignee
+            const department = Array.isArray(o.department) ? o.department[0] : o.department
+            return {
+              id: o.id,
+              order_number: o.order_number,
+              status: o.status,
+              order_value: o.order_value,
+              expected_delivery_date: o.expected_delivery_date,
+              health: o.health,
+              companyName: company?.name || '—',
+              assigneeName: assignee?.full_name || 'Unassigned',
+              departmentName: department?.name || '—',
+            }
+          })}
+        />
+      ) : (
+        <div className="bg-white rounded-2xl border border-[#E5DFD5] overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[#FAF7F2] text-[#7A7267]">
+              <tr>
+                <th className="px-3 py-3 font-semibold">Order</th>
+                <th className="px-3 py-3 font-semibold">Client</th>
+                <th className="px-3 py-3 font-semibold">Campaign</th>
+                <th className="px-3 py-3 font-semibold">Value</th>
+                <th className="px-3 py-3 font-semibold">Stage</th>
+                <th className="px-3 py-3 font-semibold">Department</th>
+                <th className="px-3 py-3 font-semibold">Assigned To</th>
+                <th className="px-3 py-3 font-semibold">Expected</th>
+                <th className="px-3 py-3 font-semibold">Health</th>
+                <th className="px-3 py-3 font-semibold">Updated</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#EFE9E0]">
+              {rows.map((o) => {
+                const company = Array.isArray(o.company) ? o.company[0] : o.company
+                const assignee = Array.isArray(o.assignee) ? o.assignee[0] : o.assignee
+                const department = Array.isArray(o.department) ? o.department[0] : o.department
+                const campaign = Array.isArray(o.campaign) ? o.campaign[0] : o.campaign
                 return (
-                  <Link href={`/crm/orders/${order.id}`} key={order.id}>
-                    <div className={`p-4 bg-white rounded-lg shadow-sm border ${isOverdue ? 'border-red-500' : 'border-gray-200'} hover:shadow-md transition-shadow`}>
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="font-semibold text-[var(--color-primary)]">{order.order_number}</span>
-                        <div title={order.owner?.full_name} className="w-6 h-6 rounded-full bg-[var(--color-primary)] text-white flex items-center justify-center text-xs">
-                          {getInitials(order.owner?.full_name)}
-                        </div>
-                      </div>
-                      <p className="text-sm font-medium mb-2">{order.companies?.name}</p>
-                      <div className="flex justify-between items-end mt-4">
-                        <div className="text-xs text-[var(--color-text-secondary)]">
-                          Due: {formatDate(order.expected_delivery)}
-                        </div>
-                        <span className={`text-xs font-medium px-2 py-1 rounded ${isOverdue ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                          {isOverdue ? `${Math.abs(daysRemaining)}d overdue` : `${daysRemaining}d left`}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
+                  <tr key={o.id} className="hover:bg-[#FAF7F2]">
+                    <td className="px-3 py-3">
+                      <Link href={`/crm/orders/${o.id}`} className="font-mono font-semibold text-[#1A3022] hover:underline">
+                        {o.order_number}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-3">{company?.name || '—'}</td>
+                    <td className="px-3 py-3">{campaign?.name || '—'}</td>
+                    <td className="px-3 py-3 font-medium">{formatCurrency(o.order_value)}</td>
+                    <td className="px-3 py-3">{ORDER_STATUS_LABELS[o.status] || o.status}</td>
+                    <td className="px-3 py-3">{department?.name || '—'}</td>
+                    <td className="px-3 py-3">{assignee?.full_name || 'Unassigned'}</td>
+                    <td className="px-3 py-3">{formatDate(o.expected_delivery_date)}</td>
+                    <td className="px-3 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${HEALTH_STYLES[o.health]}`}>
+                        {HEALTH_LABELS[o.health]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-[#7A7267]">{formatDate(o.updated_at)}</td>
+                  </tr>
                 )
               })}
-              {(!groupedOrders[status] || groupedOrders[status].length === 0) && (
-                <p className="text-sm text-gray-400 italic text-center py-4">No orders</p>
+              {rows.length === 0 && (
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[#7A7267]">No orders match these filters.</td></tr>
               )}
-            </div>
-          </div>
-        ))}
-      </div>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

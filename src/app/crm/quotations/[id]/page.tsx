@@ -1,16 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { requireStaff } from '@/lib/auth'
 import { updateQuotationStatus, convertToOrder, duplicateQuotation } from '../actions'
-import { FileText, Building2, User, Calendar, CheckCircle2, XCircle, Copy, ArrowRight } from 'lucide-react'
+import { FileText, CheckCircle2, XCircle, Copy, ArrowRight } from 'lucide-react'
 
 export default async function QuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  await requireStaff()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const { data: quote } = await supabase
     .from('quotations')
@@ -25,10 +25,10 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
 
   if (!quote) notFound()
 
-  const { data: items } = await supabase
-    .from('quotation_items')
-    .select('*, product:products(id, name, sku, image_url)')
-    .eq('quotation_id', quote.id)
+  const [{ data: items }, { data: linkedOrder }] = await Promise.all([
+    supabase.from('quotation_items').select('*, product:products(id, name, sku, image_url)').eq('quotation_id', quote.id),
+    supabase.from('orders').select('id, order_number').eq('quotation_id', quote.id).maybeSingle(),
+  ])
 
   const isExpired = quote.valid_until && new Date(quote.valid_until) < new Date() && quote.status === 'sent'
 
@@ -113,12 +113,20 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
               </form>
             </>
           )}
-          {quote.status === 'accepted' && (
+          {quote.status === 'accepted' && !linkedOrder && (
             <form action={convertAction}>
               <button type="submit" className="px-4 py-2 bg-[#4A235A] hover:bg-[#3d1c4a] text-white rounded-lg text-xs font-semibold shadow-sm transition-colors inline-flex items-center gap-1.5">
                 <ArrowRight size={14} /> Convert to Order
               </button>
             </form>
+          )}
+          {linkedOrder && (
+            <Link
+              href={`/crm/orders/${linkedOrder.id}`}
+              className="px-4 py-2 bg-[#1A3022] hover:opacity-90 text-white rounded-lg text-xs font-semibold shadow-sm inline-flex items-center gap-1.5"
+            >
+              <ArrowRight size={14} /> View order {linkedOrder.order_number}
+            </Link>
           )}
         </div>
       </div>

@@ -1,75 +1,90 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import { redirect } from 'next/navigation'
+import { createTask, completeTask } from './actions'
 
-export default async function TasksPage({ searchParams }: { searchParams: { tab?: string } }) {
+const PRIORITY_LABELS: Record<number, string> = { 1: 'high', 2: 'medium', 3: 'low' }
+
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const tab = searchParams.tab || 'my_tasks'
-  let query = supabase.from('tasks').select('*, assignee:assigned_to(full_name), creator:created_by(full_name)').order('due_date', { ascending: true })
-  
-  if (tab === 'my_tasks') {
-    query = query.eq('assigned_to', user.id)
-  }
-
-  const { data: tasks } = await query
+  const { tab = 'my_tasks' } = await searchParams
+  let query = supabase.from('tasks').select('*, assignee:profiles!assigned_to(full_name)').order('due_at', { ascending: true })
+  if (tab === 'my_tasks') query = query.eq('assigned_to', user.id)
+  const [{ data: tasks }, { data: team }] = await Promise.all([
+    query,
+    supabase.from('profiles').select('id, full_name').not('role', 'in', '(client_admin,client_user)').order('full_name'),
+  ])
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-[var(--color-primary)]">Tasks</h1>
-      </div>
-      
-      <div className="flex gap-4 mb-6 border-b border-[var(--color-border)]">
-        <a href="?tab=my_tasks" className={`pb-2 px-1 font-medium ${tab === 'my_tasks' ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]' : 'text-[var(--color-text-secondary)] hover:text-black'}`}>My Tasks</a>
-        <a href="?tab=all_tasks" className={`pb-2 px-1 font-medium ${tab === 'all_tasks' ? 'text-[var(--color-primary)] border-b-2 border-[var(--color-primary)]' : 'text-[var(--color-text-secondary)] hover:text-black'}`}>All Tasks</a>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-[var(--color-primary)]">Tasks</h1>
+
+      <form action={createTask} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
+        <input name="title" required placeholder="Task title" className="border rounded-lg px-2 py-2 md:col-span-2" />
+        <input name="due_at" type="date" className="border rounded-lg px-2 py-2" />
+        <select name="priority" defaultValue="2" className="border rounded-lg px-2 py-2">
+          <option value="1">High</option>
+          <option value="2">Medium</option>
+          <option value="3">Low</option>
+        </select>
+        <select name="assigned_to" defaultValue={user.id} className="border rounded-lg px-2 py-2 md:col-span-2">
+          {(team || []).map((p) => (
+            <option key={p.id} value={p.id}>{p.full_name}</option>
+          ))}
+        </select>
+        <input name="description" placeholder="Notes" className="border rounded-lg px-2 py-2 md:col-span-2" />
+        <button className="bg-[#1A3022] text-white rounded-lg font-semibold md:col-span-4 py-2">Create task</button>
+      </form>
+
+      <div className="flex gap-4 border-b">
+        <a href="?tab=my_tasks" className={`pb-2 px-1 text-sm ${tab === 'my_tasks' ? 'font-semibold border-b-2 border-[#1A3022]' : 'text-gray-500'}`}>My Tasks</a>
+        <a href="?tab=all_tasks" className={`pb-2 px-1 text-sm ${tab === 'all_tasks' ? 'font-semibold border-b-2 border-[#1A3022]' : 'text-gray-500'}`}>All Tasks</a>
       </div>
 
-      <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-[var(--color-border)] bg-gray-50">
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Title</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Priority</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Assigned To</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Due Date</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Status</th>
+            <tr className="border-b bg-gray-50 text-xs text-gray-500">
+              <th className="p-3">Title</th>
+              <th className="p-3">Priority</th>
+              <th className="p-3">Assigned To</th>
+              <th className="p-3">Due</th>
+              <th className="p-3">Status</th>
+              <th className="p-3"></th>
             </tr>
           </thead>
           <tbody>
-            {tasks?.map(task => (
-              <tr key={task.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
-                <td className="p-3 text-sm font-medium">{task.title}</td>
-                <td className="p-3 text-sm">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    task.priority === 'high' ? 'bg-red-100 text-red-800' :
-                    task.priority === 'medium' ? 'bg-amber-100 text-amber-800' :
-                    'bg-green-100 text-green-800'
-                  }`}>
-                    {task.priority}
-                  </span>
-                </td>
-                <td className="p-3 text-sm">{task.assignee?.full_name || 'Unassigned'}</td>
-                <td className={`p-3 text-sm ${new Date(task.due_date) < new Date() && task.status !== 'completed' ? 'text-red-600 font-semibold' : ''}`}>
-                  {formatDate(task.due_date)}
-                </td>
-                <td className="p-3 text-sm">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                    task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {task.status.replace('_', ' ')}
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {(tasks || []).map((task) => {
+              const assignee = Array.isArray(task.assignee) ? task.assignee[0] : task.assignee
+              const priority = typeof task.priority === 'number' ? PRIORITY_LABELS[task.priority] || String(task.priority) : task.priority
+              const overdue = task.due_at && new Date(task.due_at) < new Date() && task.status !== 'done' && !task.completed_at
+              return (
+                <tr key={task.id} className="border-b">
+                  <td className="p-3 font-medium">{task.title}</td>
+                  <td className="p-3 capitalize">{priority}</td>
+                  <td className="p-3">{assignee?.full_name || 'Unassigned'}</td>
+                  <td className={`p-3 ${overdue ? 'text-red-600 font-semibold' : ''}`}>{formatDate(task.due_at)}</td>
+                  <td className="p-3 capitalize">{String(task.status || 'open').replace('_', ' ')}</td>
+                  <td className="p-3">
+                    {task.status !== 'done' && !task.completed_at && (
+                      <form action={completeTask}>
+                        <input type="hidden" name="id" value={task.id} />
+                        <button className="text-xs underline">Complete</button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
             {(!tasks || tasks.length === 0) && (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-[var(--color-text-secondary)]">No tasks found.</td>
-              </tr>
+              <tr><td colSpan={6} className="p-4 text-center text-gray-500">No tasks found.</td></tr>
             )}
           </tbody>
         </table>

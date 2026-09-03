@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
+import { CompanyAvatar } from '@/components/ui/avatar';
 import { Search } from 'lucide-react';
 
 export default async function Companies(props: { searchParams: Promise<{ q?: string; status?: string }> }) {
@@ -13,7 +14,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
   const q = searchParams?.q || '';
   const status = searchParams?.status || '';
 
-  let query = supabase.from('companies').select('*, profiles(first_name, last_name)').order('created_at', { ascending: false }).limit(25);
+  let query = supabase.from('companies').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false }).limit(25);
   
   if (q) query = query.ilike('name', `%${q}%`);
   if (status) query = query.eq('status', status);
@@ -22,9 +23,19 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-[var(--color-primary)]">Companies {companies?.length ? `(${companies.length})` : ''}</h1>
-        <Link href="/crm/companies/new" className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-md font-medium hover:opacity-90">Add Company</Link>
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-6">
+        <div>
+          <h1 className="text-xl font-semibold text-[var(--color-text)]">Companies</h1>
+          <p className="text-xs text-[var(--color-text-secondary)] mt-1">
+            Manage your corporate clients, contacts and account information.
+          </p>
+        </div>
+        <Link
+          href="/crm/companies/new"
+          className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 self-start"
+        >
+          Add Company
+        </Link>
       </div>
 
       <div className="mb-6 flex gap-4">
@@ -60,18 +71,14 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
               {companies.map(c => (
                 <tr key={c.id} className="border-b hover:bg-gray-50">
                   <td className="p-4">
-                    <Link href={`/crm/companies/${c.id}`} className="flex items-center gap-3 hover:text-blue-600">
-                      {c.logo_path ? (
-                        <img src={`https://ajysowosgjaipczrwpfv.supabase.co/storage/v1/object/public/logos/${c.logo_path}`} className="w-10 h-10 rounded-full object-cover border" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold">{c.name.substring(0,2).toUpperCase()}</div>
-                      )}
+                    <Link href={`/crm/companies/${c.id}`} className="flex items-center gap-3 hover:text-[var(--color-primary)]">
+                      <CompanyAvatar name={c.name} logoPath={c.logo_path} size="md" />
                       <span className="font-medium">{c.name}</span>
                     </Link>
                   </td>
                   <td className="p-4 text-gray-600">{c.industry || '-'}</td>
                   <td className="p-4 text-gray-600">{c.city || '-'}</td>
-                  <td className="p-4 text-gray-600">{c.profiles?.first_name} {c.profiles?.last_name}</td>
+                  <td className="p-4 text-gray-600">{(Array.isArray(c.owner) ? c.owner[0] : c.owner)?.full_name || '—'}</td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${c.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                       {c.status}

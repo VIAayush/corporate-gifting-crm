@@ -1,58 +1,74 @@
-import React from 'react';
-import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
-import { formatCurrency, formatDate } from '@/lib/utils';
-import { FolderGit2, Plus, Building2 } from 'lucide-react';
+import React from 'react'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import { FolderGit2, Building2 } from 'lucide-react'
+import { createCampaign } from './actions'
 
 export default async function CampaignsPage() {
-  const supabase = await createClient();
-  const { data: campaigns } = await supabase
-    .from('campaigns')
-    .select('*, company:companies(name)')
-    .order('created_at', { ascending: false });
+  const supabase = await createClient()
+  const [{ data: campaigns }, { data: companies }] = await Promise.all([
+    supabase.from('campaigns').select('*, company:companies(name)').order('created_at', { ascending: false }),
+    supabase.from('companies').select('id, name').order('name'),
+  ])
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-serif text-2xl font-normal text-[#1C1917]">Campaigns & Client Projects</h1>
-          <p className="text-xs text-[#7A7267] mt-1">Manage bulk corporate gifting programs, employee onboarding kits, and festive projects.</p>
-        </div>
+      <div>
+        <h1 className="font-serif text-2xl font-normal text-[#1C1917]">Campaigns & Client Projects</h1>
+        <p className="text-xs text-[#7A7267] mt-1">Curate a subset of the internal catalogue, publish it to one client, and track their selections.</p>
       </div>
+
+      <form action={createCampaign} className="bg-white border border-[#E5DFD5] rounded-2xl p-5 grid md:grid-cols-3 gap-3 text-xs">
+        <input name="name" required placeholder="Campaign name" className="border rounded-lg px-3 py-2" />
+        <select name="company_id" required className="border rounded-lg px-3 py-2">
+          <option value="">Client company</option>
+          {(companies || []).map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <input name="occasion" placeholder="Occasion (Diwali, onboarding…)" className="border rounded-lg px-3 py-2" />
+        <input name="employee_quantity" type="number" min="1" defaultValue={1000} placeholder="Employees" className="border rounded-lg px-3 py-2" />
+        <input name="budget_per_employee" type="number" step="0.01" min="0" defaultValue={3000} placeholder="Budget per employee" className="border rounded-lg px-3 py-2" />
+        <input name="required_delivery_date" type="date" className="border rounded-lg px-3 py-2" />
+        <input name="description" placeholder="Notes" className="md:col-span-2 border rounded-lg px-3 py-2" />
+        <button className="bg-[#1A3022] text-white rounded-lg font-semibold">Create campaign</button>
+      </form>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {campaigns?.length ? (
-          campaigns.map((camp) => (
-            <div key={camp.id} className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-[#1C1917]">{camp.title}</h3>
-                  <p className="text-xs text-[#7A7267] flex items-center gap-1 mt-1">
-                    <Building2 className="w-3.5 h-3.5" /> {(camp.company as any)?.name || 'Client Company'}
-                  </p>
+          campaigns.map((camp) => {
+            const company = Array.isArray(camp.company) ? camp.company[0] : camp.company
+            return (
+              <Link key={camp.id} href={`/crm/campaigns/${camp.id}`} className="bg-white rounded-2xl border border-[#E5DFD5] p-6 space-y-4 hover:border-[#1A3022]">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-[#1C1917]">{camp.name}</h3>
+                    <p className="text-xs text-[#7A7267] flex items-center gap-1 mt-1">
+                      <Building2 className="w-3.5 h-3.5" /> {company?.name || 'Client company'}
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#E1EFFE] text-[#1E429F]">
+                    {String(camp.status || 'planning').replace(/_/g, ' ')}
+                  </span>
                 </div>
-                <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#E1EFFE] text-[#1E429F]">
-                  {camp.status || 'Active'}
-                </span>
-              </div>
-              {camp.notes && <p className="text-xs text-[#5A5248] line-clamp-2">{camp.notes}</p>}
-              {camp.deadline && (
-                <p className="text-[11px] text-[#7A7267]">
-                  Deadline: <span className="font-semibold text-[#1C1917]">{formatDate(camp.deadline)}</span>
+                <p className="text-xs text-[#5A5248]">
+                  {camp.employee_quantity?.toLocaleString('en-IN')} employees · {formatCurrency(camp.budget_per_employee)} / person
                 </p>
-              )}
-            </div>
-          ))
+                <p className="text-sm font-semibold">{formatCurrency(camp.total_budget)} total</p>
+                {camp.required_delivery_date && (
+                  <p className="text-[11px] text-[#7A7267]">Delivery {formatDate(camp.required_delivery_date)}</p>
+                )}
+              </Link>
+            )
+          })
         ) : (
           <div className="col-span-full bg-white rounded-2xl border border-[#E5DFD5] p-12 text-center text-gray-500">
             <FolderGit2 className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-            <h3 className="text-base font-semibold text-gray-900">Active Campaigns</h3>
-            <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
-              Bulk campaigns and client selection portals for Wipro and Nexora are active.
-            </p>
+            <h3 className="text-base font-semibold text-gray-900">No campaigns yet</h3>
           </div>
         )}
       </div>
     </div>
-  );
+  )
 }

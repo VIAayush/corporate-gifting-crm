@@ -4,16 +4,18 @@ import Link from 'next/link'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
 const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-blue-100 text-blue-800',
-  planning: 'bg-purple-100 text-purple-800',
-  supplier_coordination: 'bg-orange-100 text-orange-800',
+  created: 'bg-blue-100 text-blue-800',
+  confirmed: 'bg-indigo-100 text-indigo-800',
+  procurement: 'bg-orange-100 text-orange-800',
   printing: 'bg-amber-100 text-amber-800',
   quality_check: 'bg-yellow-100 text-yellow-800',
-  dispatch: 'bg-indigo-100 text-indigo-800',
-  delivered: 'bg-green-100 text-green-800'
+  ready_to_dispatch: 'bg-teal-100 text-teal-800',
+  dispatched: 'bg-purple-100 text-purple-800',
+  delivered: 'bg-green-100 text-green-800',
+  cancelled: 'bg-gray-100 text-gray-800',
 }
 
-export default async function OrdersPage(props: { searchParams: { status?: string } }) {
+export default async function OrdersPage(props: { searchParams: Promise<{ status?: string }> }) {
   const searchParams = await props.searchParams
   const statusFilter = searchParams.status || 'all'
   
@@ -32,7 +34,7 @@ export default async function OrdersPage(props: { searchParams: { status?: strin
 
   const { data: orders, error } = await query
 
-  const statuses = ['all', 'received', 'planning', 'supplier_coordination', 'printing', 'quality_check', 'dispatch', 'delivered']
+  const statuses = ['all', 'created', 'confirmed', 'procurement', 'printing', 'quality_check', 'ready_to_dispatch', 'dispatched', 'delivered']
 
   const today = new Date().toISOString().split('T')[0]
 

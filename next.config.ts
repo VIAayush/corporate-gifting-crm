@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: '*.supabase.co', pathname: '/storage/v1/object/public/**' },
+    ],
+  },
   async rewrites() {
     return [
       { source: '/dashboard', destination: '/crm/dashboard' },
@@ -32,6 +37,11 @@ const nextConfig: NextConfig = {
       { source: '/team', destination: '/crm/team' },
       { source: '/settings', destination: '/crm/settings' },
       { source: '/audit-log', destination: '/crm/audit-log' },
+      { source: '/my-work', destination: '/crm/my-work' },
+      { source: '/department', destination: '/crm/department' },
+      { source: '/order-management', destination: '/crm/order-management' },
+      { source: '/order-control-center', destination: '/crm/order-management' },
+      { source: '/payables', destination: '/crm/payables' },
     ];
   },
 };

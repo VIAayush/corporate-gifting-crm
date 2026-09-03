@@ -3,12 +3,19 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { getProfile } from '@/lib/auth'
+
+const CATALOGUE_ROLES = ['admin', 'sales'] as const
+type CatalogueRole = (typeof CATALOGUE_ROLES)[number]
 
 export async function createProduct(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to create products' }
+  }
 
+  const supabase = await createClient()
   const name = formData.get('name') as string
   const sku = formData.get('sku') as string
   const category_id = (formData.get('category_id') as string) || null
@@ -50,6 +57,7 @@ export async function createProduct(formData: FormData) {
     .single()
 
   if (error) {
+    if (error.code === '23505') return { error: 'SKU already exists.' }
     return { error: error.message }
   }
 
@@ -67,46 +75,87 @@ export async function createProduct(formData: FormData) {
 }
 
 export async function updateProduct(productId: string, formData: FormData) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to edit products' }
+  }
+
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-
-  const name = formData.get('name') as string
-  const sku = formData.get('sku') as string
-  const category_id = (formData.get('category_id') as string) || null
-  const brand_id = (formData.get('brand_id') as string) || null
-  const supplier_id = (formData.get('supplier_id') as string) || null
-  const description = (formData.get('description') as string) || null
-  const price = parseFloat(formData.get('price') as string) || 0
-  const supplier_cost = formData.get('supplier_cost') ? parseFloat(formData.get('supplier_cost') as string) : null
-  const internal_margin = formData.get('internal_margin') ? parseFloat(formData.get('internal_margin') as string) : null
-  const moq = parseInt(formData.get('moq') as string, 10) || 1
-  const image_url = (formData.get('image_url') as string) || null
-  const status = (formData.get('status') as string) || 'active'
-  const catalogue_access = (formData.get('catalogue_access') as string) || 'all'
-
-  const { error } = await supabase
+  const { data: existing } = await supabase
     .from('products')
-    .update({
-      name,
-      sku: sku.trim().toUpperCase(),
-      category_id,
-      brand_id,
-      supplier_id,
-      description,
-      price,
-      supplier_cost,
-      internal_margin,
-      moq,
-      image_url,
-      status,
-      catalogue_access,
-      visibility: catalogue_access === 'all' ? 'catalogue' : (catalogue_access === 'selected' ? 'selected_companies' : 'internal_only'),
-      updated_at: new Date().toISOString(),
-    })
+    .select('sku')
     .eq('id', productId)
+    .maybeSingle()
+  if (!existing) return { error: 'Product not found' }
 
-  if (error) return { error: error.message }
+  // Only write fields the submitted form actually contains. Previously any field
+  // missing from the form (supplier, margin) was overwritten with null on save.
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
+  const text = (key: string, column = key) => {
+    if (!formData.has(key)) return
+    update[column] = (formData.get(key) as string)?.trim() || null
+  }
+  const number = (key: string, column = key, fallback: number | null = null) => {
+    if (!formData.has(key)) return
+    const raw = (formData.get(key) as string)?.trim()
+    if (!raw) {
+      update[column] = fallback
+      return
+    }
+    const parsed = Number(raw)
+    update[column] = Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  text('name')
+  text('description')
+  text('image_url')
+  text('category_id')
+  text('brand_id')
+  text('subcategory_id')
+  text('supplier_id')
+  text('hsn_code')
+  number('price', 'price', 0)
+  number('supplier_cost')
+  number('internal_margin')
+  number('moq', 'moq', 1)
+
+  if (formData.has('status')) {
+    update.status = (formData.get('status') as string) || 'active'
+  }
+
+  if (formData.has('catalogue_access')) {
+    const catalogue_access = (formData.get('catalogue_access') as string) || 'all'
+    if (!['all', 'selected', 'none'].includes(catalogue_access)) {
+      return { error: 'Invalid catalogue visibility' }
+    }
+    update.catalogue_access = catalogue_access
+    update.visibility =
+      catalogue_access === 'all' ? 'catalogue' : catalogue_access === 'selected' ? 'selected_companies' : 'internal_only'
+  }
+
+  // SKU is the stable product identifier. It is never changed implicitly, and only
+  // an admin may change it deliberately. The audit_products trigger records it.
+  if (formData.has('sku')) {
+    const submitted = ((formData.get('sku') as string) || '').trim().toUpperCase()
+    if (submitted && submitted !== existing.sku) {
+      if (profile.role !== 'admin') {
+        return { error: 'Only an admin can change a product SKU' }
+      }
+      update.sku = submitted
+    }
+  }
+
+  if (formData.has('name') && !update.name) {
+    return { error: 'Product name is required' }
+  }
+
+  const { error } = await supabase.from('products').update(update).eq('id', productId)
+  if (error) {
+    if (error.code === '23505') return { error: 'SKU already exists.' }
+    return { error: error.message }
+  }
 
   revalidatePath('/crm/products/' + productId)
   revalidatePath('/crm/products')
@@ -114,11 +163,167 @@ export async function updateProduct(productId: string, formData: FormData) {
   return { success: true }
 }
 
-export async function grantCompanyProductAccess(productId: string, companyId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+const IMAGE_BUCKET = 'product-images'
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+}
 
+function publicImageUrl(objectPath: string) {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!base) return objectPath
+  return `${base.replace(/\/$/, '')}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath.replace(/^\/+/, '')}`
+}
+
+function isStoredProductImage(url: string | null | undefined) {
+  return Boolean(url && url.includes(`/storage/v1/object/public/${IMAGE_BUCKET}/`))
+}
+
+function objectPathFromUrl(url: string) {
+  const marker = `/storage/v1/object/public/${IMAGE_BUCKET}/`
+  const idx = url.indexOf(marker)
+  if (idx === -1) return null
+  return decodeURIComponent(url.slice(idx + marker.length))
+}
+
+export async function uploadProductImage(formData: FormData) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to update product images' }
+  }
+
+  const productId = String(formData.get('product_id') || '')
+  const file = formData.get('image')
+  if (!productId) return { error: 'Unable to upload product image. Please check the file and try again.' }
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: 'Please upload a JPG, PNG or WebP image.' }
+  }
+  const extension = ALLOWED_IMAGE_TYPES[file.type]
+  if (!extension) return { error: 'Please upload a JPG, PNG or WebP image.' }
+  if (file.size > MAX_IMAGE_BYTES) return { error: 'Please upload an image smaller than 5 MB.' }
+
+  const supabase = await createClient()
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, image_url')
+    .eq('id', productId)
+    .maybeSingle()
+  if (!product) return { error: 'Unable to upload product image. Please check the file and try again.' }
+
+  const objectPath = `${productId}/${Date.now()}.${extension}`
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGE_BUCKET)
+    .upload(objectPath, file, { contentType: file.type, upsert: false })
+  if (uploadError) return { error: 'Unable to upload product image. Please check the file and try again.' }
+
+  const nextUrl = publicImageUrl(objectPath)
+  const { error: updateError } = await supabase
+    .from('products')
+    .update({ image_url: nextUrl })
+    .eq('id', productId)
+
+  if (updateError) {
+    await supabase.storage.from(IMAGE_BUCKET).remove([objectPath])
+    return { error: 'Unable to upload product image. Please check the file and try again.' }
+  }
+
+  if (isStoredProductImage(product.image_url)) {
+    const previous = objectPathFromUrl(product.image_url)
+    if (previous && previous !== objectPath) {
+      await supabase.storage.from(IMAGE_BUCKET).remove([previous])
+    }
+  }
+
+  revalidatePath(`/crm/products/${productId}`)
+  revalidatePath('/crm/products')
+  revalidatePath('/portal/catalogue')
+  return { success: true }
+}
+
+export async function removeProductImage(formData: FormData) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to update product images' }
+  }
+
+  const productId = String(formData.get('product_id') || '')
+  if (!productId) return { error: 'Unable to upload product image. Please check the file and try again.' }
+
+  const supabase = await createClient()
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, image_url')
+    .eq('id', productId)
+    .maybeSingle()
+  if (!product) return { error: 'Unable to remove product image. Please try again.' }
+
+  const { error } = await supabase.from('products').update({ image_url: null }).eq('id', productId)
+  if (error) return { error: 'Unable to remove product image. Please try again.' }
+
+  if (isStoredProductImage(product.image_url)) {
+    const previous = objectPathFromUrl(product.image_url)
+    if (previous) await supabase.storage.from(IMAGE_BUCKET).remove([previous])
+  }
+
+  revalidatePath(`/crm/products/${productId}`)
+  revalidatePath('/crm/products')
+  revalidatePath('/portal/catalogue')
+  return { success: true }
+}
+
+export async function saveCatalogueVisibility(productId: string, mode: string, companyIds: string[]) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to change catalogue visibility' }
+  }
+  if (!['all', 'selected', 'none'].includes(mode)) {
+    return { error: 'Unable to update catalogue visibility. Please try again.' }
+  }
+  if (mode === 'selected' && (!companyIds || companyIds.length === 0)) {
+    return { error: 'Unable to update catalogue visibility. Please try again.' }
+  }
+
+  const supabase = await createClient()
+  const visibility =
+    mode === 'all' ? 'catalogue' : mode === 'selected' ? 'selected_companies' : 'internal_only'
+
+  const { error: updateError } = await supabase
+    .from('products')
+    .update({ catalogue_access: mode, visibility })
+    .eq('id', productId)
+  if (updateError) return { error: 'Unable to update catalogue visibility. Please try again.' }
+
+  const { error: clearError } = await supabase
+    .from('company_product_access')
+    .delete()
+    .eq('product_id', productId)
+  if (clearError) return { error: 'Unable to update catalogue visibility. Please try again.' }
+
+  if (mode === 'selected') {
+    const rows = [...new Set(companyIds)].map((company_id) => ({ product_id: productId, company_id }))
+    const { error: insertError } = await supabase.from('company_product_access').insert(rows)
+    if (insertError) return { error: 'Unable to update catalogue visibility. Please try again.' }
+  }
+
+  revalidatePath(`/crm/products/${productId}`)
+  revalidatePath('/crm/products')
+  revalidatePath('/portal/catalogue')
+  return { success: true }
+}
+
+export async function grantCompanyProductAccess(productId: string, companyId: string) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to change catalogue visibility' }
+  }
+
+  const supabase = await createClient()
   if (!companyId) return { error: 'Please select a company' }
 
   const { error: insertError } = await supabase
@@ -140,10 +345,13 @@ export async function grantCompanyProductAccess(productId: string, companyId: st
 }
 
 export async function revokeCompanyProductAccess(productId: string, companyId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+    return { error: 'Not permitted to change catalogue visibility' }
+  }
 
+  const supabase = await createClient()
   const { error } = await supabase
     .from('company_product_access')
     .delete()

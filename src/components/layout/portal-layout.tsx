@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, LogOut, PackageSearch, Heart, ClipboardList, FileText, ShoppingBag } from 'lucide-react';
+import { Menu, X, LogOut, PackageSearch, Heart, FileText, ShoppingBag, LayoutDashboard, FolderGit2, Files } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import { CompanyAvatar } from '../ui/avatar';
 
@@ -17,11 +17,13 @@ interface PortalLayoutProps {
 }
 
 const navItems = [
-  { label: 'Catalogue', href: '/portal/catalogue', icon: PackageSearch },
+  { label: 'Dashboard', href: '/portal', icon: LayoutDashboard },
+  { label: 'Campaigns', href: '/portal/campaigns', icon: FolderGit2 },
+  { label: 'Products', href: '/portal/catalogue', icon: PackageSearch },
   { label: 'Shortlist', href: '/portal/shortlist', icon: Heart },
-  { label: 'Requirements', href: '/portal/requirements', icon: ClipboardList },
   { label: 'Quotations', href: '/portal/quotations', icon: FileText },
   { label: 'Orders', href: '/portal/orders', icon: ShoppingBag },
+  { label: 'Documents', href: '/portal/documents', icon: Files },
 ];
 
 export function PortalLayout({ children, user }: PortalLayoutProps) {
@@ -43,7 +45,9 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
               
               <nav className="hidden md:flex items-center space-x-1">
                 {navItems.map((item) => {
-                  const isActive = pathname.startsWith(item.href);
+                  const isActive = item.href === '/portal'
+                    ? pathname === '/portal'
+                    : pathname.startsWith(item.href);
                   const Icon = item.icon;
                   return (
                     <Link
@@ -102,7 +106,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           <div className="md:hidden border-t border-gray-200 bg-white">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
               {navItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
+                  const isActive =
+                    item.href === '/portal' ? pathname === '/portal' : pathname.startsWith(item.href);
                 const Icon = item.icon;
                 return (
                   <Link

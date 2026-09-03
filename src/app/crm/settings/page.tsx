@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { updateOrgSettings } from './actions'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -7,7 +8,6 @@ export default async function SettingsPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  
   if (profile?.role !== 'admin') {
     return (
       <div className="p-6">
@@ -19,49 +19,26 @@ export default async function SettingsPage() {
     )
   }
 
-  const { data: settings } = await supabase.from('org_settings').select('*').limit(1).single()
+  const { data: settings } = await supabase.from('org_settings').select('*').limit(1).maybeSingle()
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-[var(--color-primary)] mb-6">Organization Settings</h1>
-      
-      <div className="bg-[var(--color-surface)] p-6 rounded-lg border border-[var(--color-border)] shadow-sm">
-        <h2 className="text-lg font-semibold mb-4 border-b pb-2">Company Information</h2>
-        
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <div>
-            <p className="text-sm text-gray-500 mb-1">Organization Name</p>
-            <p className="font-medium">{settings?.org_name || 'GIFFTER'}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 mb-1">GST Number</p>
-            <p className="font-medium">{settings?.gst_number || 'Not Set'}</p>
-          </div>
-          <div className="col-span-2">
-            <p className="text-sm text-gray-500 mb-1">Registered Address</p>
-            <p className="font-medium bg-gray-50 p-3 rounded border border-gray-100">{settings?.address || 'Not Set'}</p>
-          </div>
-        </div>
-
-        <h2 className="text-lg font-semibold mb-4 border-b pb-2">Financial Defaults</h2>
-        
-        <div className="grid grid-cols-2 gap-6">
-          <div>
-            <p className="text-sm text-gray-500 mb-1">Default Tax Rate (%)</p>
-            <p className="font-medium">{settings?.default_tax_rate ? `${settings.default_tax_rate}%` : '18%'}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 mb-1">Default Currency</p>
-            <p className="font-medium">INR (₹)</p>
-          </div>
-        </div>
-        
-        <div className="mt-8 pt-4 border-t border-gray-200 flex justify-end">
-          <button className="px-4 py-2 bg-gray-200 text-gray-500 rounded font-medium cursor-not-allowed text-sm" disabled>
-            Edit Settings (Coming Soon)
-          </button>
-        </div>
-      </div>
+      <form action={updateOrgSettings} className="bg-white p-6 rounded-lg border space-y-4 text-sm">
+        <label className="block">
+          <span className="text-gray-500 text-xs">Organisation name</span>
+          <input name="organisation_name" defaultValue={settings?.organisation_name || 'GIFFTER'} className="w-full border rounded-lg px-3 py-2 mt-1" />
+        </label>
+        <label className="block">
+          <span className="text-gray-500 text-xs">Default tax percent</span>
+          <input name="default_tax_percent" type="number" step="0.01" defaultValue={settings?.default_tax_percent || 18} className="w-full border rounded-lg px-3 py-2 mt-1" />
+        </label>
+        <label className="block">
+          <span className="text-gray-500 text-xs">Currency</span>
+          <input name="currency" defaultValue={settings?.currency || 'INR'} className="w-full border rounded-lg px-3 py-2 mt-1" />
+        </label>
+        <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg font-medium text-sm">Save settings</button>
+      </form>
     </div>
   )
 }

@@ -1,105 +1,250 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { AddToShortlistButton } from './AddToShortlistButton'
+import { OfferingActions } from './OfferingActions'
 import { formatCurrency } from '@/lib/utils'
-import { Package, Lock } from 'lucide-react'
+import { ProductImage } from '@/components/ui/product-image'
+import { Package, Search } from 'lucide-react'
 
-export default async function PortalCataloguePage() {
+const PAGE_SIZE = 24
+
+/** PostgREST `or=` filters are comma/parenthesis delimited, so strip those. */
+function sanitiseSearch(value: string) {
+  return value.replace(/[,()*]/g, ' ').trim().slice(0, 80)
+}
+
+export default async function PortalCataloguePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ campaign?: string; q?: string; category?: string; sort?: string; page?: string }>
+}) {
+  const { campaign: campaignFilter, q = '', category = '', sort = 'name', page = '1' } = await searchParams
   const supabase = await createClient()
   const { data: companyId } = await supabase.rpc('client_company_id')
-  
-  const { data: accessData } = await supabase
-    .from('company_product_access')
-    .select('product_id')
-    .eq('company_id', companyId)
-    
-  const specificIds = accessData?.map(a => a.product_id) ?? []
 
-  // Query only active products that are either:
-  // 1. catalogue_access = 'all' (public to all corporate portals)
-  // 2. product_id IN (company_product_access for this company)
-  let query = supabase
-    .from('products')
-    .select('id, name, sku, price, moq, image_url, description, catalogue_access, category:categories(name), brand:brands(name)')
-    .eq('status', 'active')
+  // Campaign mode keeps the existing curated-offering experience (with shortlisting),
+  // which is scoped to a single campaign.
+  if (campaignFilter) {
+    const [{ data: offerings }, { data: selections }] = await Promise.all([
+      supabase
+        .from('campaign_products')
+        .select('id, display_name, client_description, client_image_url, selling_price, moq, campaign_id, campaign:campaigns(id, name, company_id)')
+        .eq('visibility', 'published')
+        .eq('campaign_id', campaignFilter)
+        .order('display_order'),
+      supabase.from('client_product_selections').select('campaign_product_id, kind').eq('company_id', companyId),
+    ])
 
-  if (specificIds.length > 0) {
-    query = query.or(`catalogue_access.eq.all,id.in.(${specificIds.join(',')})`)
-  } else {
-    query = query.eq('catalogue_access', 'all')
+    const selectionByOffering = new Map((selections || []).map((s) => [s.campaign_product_id, s.kind]))
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Your campaign selection</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Shortlist the gifts you like and we will build your quotation around them.
+          </p>
+        </div>
+
+        {!offerings?.length ? (
+          <EmptyState
+            title="Nothing to review just yet"
+            body="Your account manager will share gifting options for this campaign shortly."
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {offerings.map((offering) => {
+              const campaign = Array.isArray(offering.campaign) ? offering.campaign[0] : offering.campaign
+              return (
+                <div key={offering.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+                  <ProductImage src={offering.client_image_url} alt={offering.display_name || 'Gift'} size="md" />
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                    <div>
+                      <p className="text-[10px] font-bold text-[var(--color-primary)] uppercase tracking-wider">
+                        {campaign?.name}
+                      </p>
+                      <Link href={`/portal/catalogue/${offering.id}`}>
+                        <h3 className="text-sm font-semibold text-gray-900 hover:text-[var(--color-primary)] line-clamp-1 mt-1">
+                          {offering.display_name}
+                        </h3>
+                      </Link>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{offering.client_description || ''}</p>
+                    </div>
+                    <div className="pt-3 border-t border-gray-100 space-y-3">
+                      <div>
+                        <p className="text-base font-semibold text-gray-900">{formatCurrency(offering.selling_price)}</p>
+                        <p className="text-[10px] text-gray-400">MOQ: {offering.moq || 1} units</p>
+                      </div>
+                      <OfferingActions
+                        campaignId={offering.campaign_id}
+                        campaignProductId={offering.id}
+                        currentKind={selectionByOffering.get(offering.id) || null}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
   }
 
-  const { data: products } = await query.order('name')
+  // Default: the client's own gift catalogue.
+  //
+  // Everything is read through public.client_products, a definer view that resolves
+  // the caller's company server-side and returns only the products that company may
+  // see. Search, filtering, sorting, pagination and the total count all run inside
+  // that boundary, so nothing outside the client's catalogue can leak through them.
+  const currentPage = Math.max(1, Number.parseInt(page, 10) || 1)
+  const from = (currentPage - 1) * PAGE_SIZE
+  const search = sanitiseSearch(q)
+
+  let query = supabase.from('client_products').select('*', { count: 'exact' })
+
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%,sku.ilike.%${search}%`)
+  }
+  if (category) {
+    query = query.eq('category_id', category)
+  }
+
+  if (sort === 'price_low') query = query.order('price', { ascending: true })
+  else if (sort === 'price_high') query = query.order('price', { ascending: false })
+  else query = query.order('name', { ascending: true })
+
+  const [{ data: products, count }, { data: categoryRows }] = await Promise.all([
+    query.range(from, from + PAGE_SIZE - 1),
+    supabase.from('client_products').select('category_id, category_name').not('category_id', 'is', null),
+  ])
+
+  const categories = Array.from(
+    new Map(
+      (categoryRows || [])
+        .filter((r) => r.category_id && r.category_name)
+        .map((r) => [r.category_id as string, r.category_name as string])
+    ).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]))
+
+  const total = count || 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  const pageHref = (nextPage: number) => {
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (category) params.set('category', category)
+    if (sort && sort !== 'name') params.set('sort', sort)
+    if (nextPage > 1) params.set('page', String(nextPage))
+    const qs = params.toString()
+    return `/portal/catalogue${qs ? `?${qs}` : ''}`
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Curated Corporate Catalogue</h1>
-        <p className="text-xs text-gray-500 mt-1">
-          Exclusive corporate gifting selection curated for your brand.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900">Explore gifts</h1>
+        <p className="text-sm text-gray-500 mt-1">Curated corporate gifting for your team, ready to personalise.</p>
       </div>
 
+      <form className="flex flex-col sm:flex-row gap-3 bg-white border border-gray-200 rounded-lg p-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="Search gifts"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-md"
+          />
+        </div>
+        <select name="category" defaultValue={category} className="text-sm border border-gray-200 rounded-md px-3 py-2 bg-white">
+          <option value="">All categories</option>
+          {categories.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select name="sort" defaultValue={sort} className="text-sm border border-gray-200 rounded-md px-3 py-2 bg-white">
+          <option value="name">Sort: A–Z</option>
+          <option value="price_low">Price: low to high</option>
+          <option value="price_high">Price: high to low</option>
+        </select>
+        <button type="submit" className="px-4 py-2 text-sm font-medium rounded-md bg-[var(--color-primary)] text-white hover:opacity-90">
+          Apply
+        </button>
+      </form>
+
       {!products?.length ? (
-        <div className="bg-white p-12 rounded-2xl shadow-sm text-center border border-gray-200">
-          <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-gray-700">No products available currently.</p>
-          <p className="text-xs text-gray-400 mt-1">Your account manager will publish personalized gifting options shortly.</p>
-        </div>
+        <EmptyState
+          title="No gifts match your search"
+          body="Try a different search term or clear the filters to see everything available to you."
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map((product) => {
-            const isPersonalized = product.catalogue_access === 'selected'
-            return (
-              <div
+        <>
+          <p className="text-xs text-gray-500">
+            Showing {from + 1}–{Math.min(from + PAGE_SIZE, total)} of {total}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {products.map((product) => (
+              <Link
                 key={product.id}
-                className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col group hover:shadow-md transition-shadow"
+                href={`/portal/catalogue/product/${product.id}`}
+                className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col hover:border-[var(--color-primary)] transition-colors"
               >
-                <div className="h-48 bg-gray-50 flex items-center justify-center p-4 relative border-b border-gray-100">
-                  {isPersonalized && (
-                    <span className="absolute top-3 left-3 inline-flex items-center gap-1 bg-[#4A235A] text-white text-[10px] font-bold px-2 py-0.5 rounded-full z-10 shadow-sm">
-                      <Lock size={10} /> Exclusive for Your Brand
-                    </span>
-                  )}
-                  {product.image_url ? (
-                    <img src={product.image_url} alt={product.name} className="h-full w-full object-contain p-2" />
-                  ) : (
-                    <span className="text-xs text-gray-400 font-mono">{product.sku}</span>
-                  )}
-                </div>
-
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                <ProductImage src={product.image_url} alt={product.name} />
+                <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[10px] font-bold text-[#4A235A] uppercase tracking-wider">
-                        {(product.category as any)?.name || 'Corporate Gift'}
-                      </span>
-                      <span className="text-[10px] text-gray-400 font-mono">{product.sku}</span>
-                    </div>
-
-                    <Link href={`/portal/catalogue/${product.sku}`}>
-                      <h3 className="text-sm font-bold text-gray-900 group-hover:text-[#4A235A] transition-colors line-clamp-1">
-                        {product.name}
-                      </h3>
-                    </Link>
-                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                      {product.description || 'Premium corporate gifting selection with custom branding options.'}
-                    </p>
+                    {product.category_name && (
+                      <p className="text-[10px] font-bold text-[var(--color-primary)] uppercase tracking-wider">
+                        {product.category_name}
+                      </p>
+                    )}
+                    <h3 className="text-sm font-semibold text-gray-900 line-clamp-1 mt-1">{product.name}</h3>
+                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{product.description || ''}</p>
                   </div>
-
-                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <div>
-                      <p className="text-base font-bold text-gray-900">{formatCurrency(product.price)}</p>
-                      <p className="text-[10px] text-gray-400">MOQ: {product.moq || 1} units</p>
-                    </div>
-                    <AddToShortlistButton product={product} />
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-base font-semibold text-gray-900">{formatCurrency(product.price)}</p>
+                    <p className="text-[10px] text-gray-400">MOQ: {product.moq || 1} units</p>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              </Link>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              {currentPage > 1 ? (
+                <Link href={pageHref(currentPage - 1)} className="text-sm text-[var(--color-primary)] hover:underline">
+                  ← Previous
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span className="text-xs text-gray-500">
+                Page {currentPage} of {totalPages}
+              </span>
+              {currentPage < totalPages ? (
+                <Link href={pageHref(currentPage + 1)} className="text-sm text-[var(--color-primary)] hover:underline">
+                  Next →
+                </Link>
+              ) : (
+                <span />
+              )}
+            </div>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="bg-white p-12 rounded-lg text-center border border-gray-200">
+      <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+      <p className="text-sm font-semibold text-gray-700">{title}</p>
+      <p className="text-xs text-gray-400 mt-1">{body}</p>
     </div>
   )
 }

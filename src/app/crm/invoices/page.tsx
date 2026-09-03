@@ -1,17 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
 
-export default async function InvoicesPage({ searchParams }: { searchParams: { status?: string } }) {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>
+}) {
+  const params = await searchParams
+  await requireStaff(['admin', 'accounts', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   let query = supabase.from('invoices').select('*, companies(name), orders(order_number)').order('created_at', { ascending: false })
   
-  if (searchParams.status) {
-    query = query.eq('status', searchParams.status)
+  if (params.status) {
+    query = query.eq('status', params.status)
   }
 
   const { data: invoices } = await query

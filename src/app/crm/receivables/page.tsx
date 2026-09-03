@@ -1,14 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
 
 export default async function ReceivablesPage() {
+  await requireStaff(['admin', 'accounts', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
-  const { data: invoices } = await supabase.from('invoices').select('*, companies(name)').in('status', ['issued', 'partially_paid']).order('due_date', { ascending: true })
+  const { data: invoices } = await supabase.from('invoices').select('*, companies(name)').in('status', ['unpaid', 'issued', 'partially_paid', 'overdue']).order('due_date', { ascending: true })
   const { data: paidThisMonthInvoices } = await supabase.from('invoices').select('amount').eq('status', 'paid').gte('updated_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
   
   const outstanding = invoices?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0

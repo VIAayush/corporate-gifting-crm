@@ -1,10 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import { redirect, notFound } from 'next/navigation'
-import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { updateProduct, grantCompanyProductAccess, revokeCompanyProductAccess } from '../actions'
-import { Package, Globe, Lock, EyeOff, Building2, Plus, Trash2 } from 'lucide-react'
+import { updateProduct } from '../actions'
+import { Globe, Lock, EyeOff } from 'lucide-react'
+import { ProductImageEditor } from '@/components/products/product-image-editor'
+import { CatalogueVisibilityEditor } from '@/components/products/catalogue-visibility-editor'
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -19,7 +20,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     { data: suppliers },
     { data: allCompanies },
     { data: accessRecords },
-    { data: variants }
   ] = await Promise.all([
     supabase.from('products').select('*, category:categories(id, name), brand:brands(id, name), supplier:suppliers(id, name)').eq('id', id).single(),
     supabase.from('categories').select('id, name').order('name'),
@@ -27,29 +27,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     supabase.from('suppliers').select('id, name').order('name'),
     supabase.from('companies').select('id, name').eq('status', 'active').order('name'),
     supabase.from('company_product_access').select('*, company:companies(id, name, city)').eq('product_id', id),
-    supabase.from('product_variants').select('*').eq('product_id', id)
   ])
 
   if (!product) notFound()
 
   const grantedCompanyIds = accessRecords?.map(a => a.company_id) || []
-  const availableCompanies = allCompanies?.filter(c => !grantedCompanyIds.includes(c.id)) || []
 
   const handleUpdate = async (formData: FormData) => {
     'use server'
     await updateProduct(product.id, formData)
-  }
-
-  const grantAccessAction = async (formData: FormData) => {
-    'use server'
-    const companyId = formData.get('company_id') as string
-    await grantCompanyProductAccess(product.id, companyId)
-  }
-
-  const revokeAccessAction = async (formData: FormData) => {
-    'use server'
-    const companyId = formData.get('company_id') as string
-    await revokeCompanyProductAccess(product.id, companyId)
   }
 
   return (
@@ -57,13 +43,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       <BackButton href="/crm/products" label="Back to Products" />
 
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-6 items-start">
-        <div className="w-32 h-32 bg-gray-100 rounded-xl overflow-hidden relative border border-gray-200 flex-shrink-0 flex items-center justify-center">
-          {product.image_url ? (
-            <img src={product.image_url} alt={product.name} className="w-full h-full object-contain p-2" />
-          ) : (
-            <Package className="w-10 h-10 text-gray-300" />
-          )}
-        </div>
+        <ProductImageEditor productId={product.id} imageUrl={product.image_url} name={product.name} />
 
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1.5">
@@ -72,17 +52,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             </span>
             {product.catalogue_access === 'all' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-green-100 text-green-800 px-2.5 py-0.5 rounded-full">
-                <Globe className="w-3 h-3" /> Visible to All Clients
+                <Globe className="w-3 h-3" /> All companies
               </span>
             )}
             {product.catalogue_access === 'selected' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-purple-100 text-[#4A235A] px-2.5 py-0.5 rounded-full">
-                <Lock className="w-3 h-3" /> Personalized ({accessRecords?.length || 0} Companies)
+                <Lock className="w-3 h-3" /> {accessRecords?.length || 0} companies
               </span>
             )}
             {product.catalogue_access === 'none' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-gray-100 text-gray-700 px-2.5 py-0.5 rounded-full">
-                <EyeOff className="w-3 h-3" /> Internal Only
+                <EyeOff className="w-3 h-3" /> Not in catalogues
               </span>
             )}
             <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full capitalize ${
@@ -144,6 +124,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   required
                   className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg font-mono uppercase focus:ring-1 focus:ring-[#4A235A]"
                 />
+                <p className="text-[10px] text-gray-400 mt-1">Permanent identifier. Admin-only to change; changes are audited.</p>
               </div>
 
               <div>
@@ -225,26 +206,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Catalogue Access Mode</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Supplier</label>
               <select
-                name="catalogue_access"
-                defaultValue={product.catalogue_access || 'all'}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white font-medium"
+                name="supplier_id"
+                defaultValue={product.supplier_id || ''}
+                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white"
               >
-                <option value="all">Visible to All Clients (Public)</option>
-                <option value="selected">Personalized / Restricted to Specific Companies</option>
-                <option value="none">Internal Only (Hidden from Portals)</option>
+                <option value="">No supplier</option>
+                {suppliers?.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
               </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Image URL</label>
-              <input
-                type="url"
-                name="image_url"
-                defaultValue={product.image_url || ''}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg"
-              />
             </div>
 
             <div>
@@ -259,100 +231,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
             <button
               type="submit"
-              className="w-full py-2.5 text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] rounded-lg shadow-sm transition-colors"
+              className="w-full py-2.5 text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] hover:text-white rounded-lg shadow-sm transition-colors"
             >
               Save Product Details
             </button>
           </form>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-5">
-          <div>
-            <h2 className="text-base font-bold text-gray-900">Personalized Company Access</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Specify which client companies can view and order this customized product in their client portal.
-            </p>
-          </div>
-
-          <form action={grantAccessAction} className="p-4 bg-purple-50/50 rounded-xl border border-purple-100 space-y-3">
-            <h3 className="text-xs font-bold text-[#4A235A] uppercase tracking-wider">
-              Grant Access to a Company
-            </h3>
-            <div className="flex gap-2">
-              <select
-                name="company_id"
-                required
-                className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-[#4A235A]"
-              >
-                <option value="">Choose a company to grant access...</option>
-                {availableCompanies.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] rounded-lg transition-colors"
-              >
-                <Plus size={14} /> Add Company
-              </button>
-            </div>
-            {availableCompanies.length === 0 && (
-              <p className="text-[11px] text-gray-500 italic">All active companies currently have access.</p>
-            )}
-          </form>
-
-          <div>
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-              Companies with Exclusive Access ({accessRecords?.length || 0})
-            </h3>
-
-            {accessRecords && accessRecords.length > 0 ? (
-              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
-                {accessRecords.map((acc) => (
-                  <div key={acc.company_id} className="p-3.5 flex items-center justify-between hover:bg-gray-50/80 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-purple-100 text-[#4A235A] rounded-lg">
-                        <Building2 size={16} />
-                      </div>
-                      <div>
-                        <Link
-                          href={`/crm/companies/${acc.company_id}`}
-                          className="text-xs font-bold text-gray-900 hover:text-[#4A235A] hover:underline"
-                        >
-                          {(acc.company as any)?.name || 'Company'}
-                        </Link>
-                        <p className="text-[10px] text-gray-500">
-                          {(acc.company as any)?.city || 'Corporate Client'} ? Granted on {formatDate(acc.created_at)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <form action={revokeAccessAction}>
-                      <input type="hidden" name="company_id" value={acc.company_id} />
-                      <button
-                        type="submit"
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Remove Access for this company"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </form>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-6 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                <p className="text-xs text-gray-500">
-                  No company-specific restrictions assigned.
-                </p>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  {product.catalogue_access === 'all'
-                    ? 'This product is currently public to all clients.'
-                    : 'Select a company above to grant exclusive access.'}
-                </p>
-              </div>
-            )}
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <CatalogueVisibilityEditor
+            productId={product.id}
+            initialMode={product.catalogue_access || 'all'}
+            companies={allCompanies || []}
+            grantedIds={grantedCompanyIds}
+          />
         </div>
       </div>
     </div>

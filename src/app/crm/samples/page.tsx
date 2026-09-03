@@ -1,75 +1,136 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { receiveSample, moveSample } from './actions'
+import { requireStaff, canSeeCosts } from '@/lib/auth'
 
 export default async function SamplesPage() {
+  const profile = await requireStaff()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const showCost = canSeeCosts(profile.role)
 
-  const { data: samples } = await supabase.from('sample_stock').select('*, products(name, sku, cost_price)')
+  const [{ data: samples }, { data: movements }, { data: products }, { data: companies }] = await Promise.all([
+    supabase.from('sample_stock').select('*, product:products(name, sku)'),
+    supabase.from('sample_movements').select('*, product:products(name), company:companies(name)').order('created_at', { ascending: false }).limit(25),
+    supabase.from('products').select('id, name, sku').eq('status', 'active').order('name').limit(80),
+    supabase.from('companies').select('id, name').order('name'),
+  ])
 
-  const totalInOffice = samples?.reduce((acc, curr) => acc + (curr.in_office_qty || 0), 0) || 0
-  const totalWithClient = samples?.reduce((acc, curr) => acc + (curr.with_client_qty || 0), 0) || 0
-  const totalPending = samples?.reduce((acc, curr) => acc + (curr.pending_supplier_qty || 0), 0) || 0
+  const totalInOffice = samples?.reduce((acc, curr) => acc + (curr.in_office || 0), 0) || 0
+  const totalWithTeam = samples?.reduce((acc, curr) => acc + (curr.with_team || 0), 0) || 0
+  const totalWithClient = samples?.reduce((acc, curr) => acc + (curr.with_client || 0), 0) || 0
+  const totalPending = samples?.reduce((acc, curr) => acc + (curr.pending_supplier || 0), 0) || 0
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-[var(--color-primary)] mb-6">Sample Stock</h1>
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-sm">
-          <p className="text-sm text-[var(--color-text-secondary)]">In Office</p>
-          <p className="text-xl font-semibold">{totalInOffice}</p>
-        </div>
-        <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-sm">
-          <p className="text-sm text-[var(--color-text-secondary)]">With Client</p>
-          <p className="text-xl font-semibold text-blue-600">{totalWithClient}</p>
-        </div>
-        <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-sm">
-          <p className="text-sm text-[var(--color-text-secondary)]">Pending Supplier</p>
-          <p className="text-xl font-semibold text-amber-600">{totalPending}</p>
-        </div>
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-[var(--color-primary)]">Sample Management</h1>
+        <p className="text-xs text-[#7A7267] mt-1">Track physical samples in office, with the team, with a client, or pending from a supplier.</p>
       </div>
-      
-      <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--color-border)] bg-gray-50">
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">SKU</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Product Name</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">In Office</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">With Client</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Pending Supplier</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Unit Cost</th>
-              <th className="p-3 font-medium text-sm text-[var(--color-text-secondary)]">Total Value</th>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          ['In Office', totalInOffice],
+          ['With Team', totalWithTeam],
+          ['With Client', totalWithClient],
+          ['Pending Supplier', totalPending],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="p-4 bg-white border rounded-xl">
+            <p className="text-xs text-[#7A7267]">{label}</p>
+            <p className="text-xl font-semibold">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <form action={receiveSample} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
+        <select name="product_id" required className="border rounded-lg px-2 py-2">
+          <option value="">Receive product sample</option>
+          {(products || []).map((p) => (
+            <option key={p.id} value={p.id}>{p.name} · {p.sku}</option>
+          ))}
+        </select>
+        <input name="quantity" type="number" min="1" defaultValue={1} className="border rounded-lg px-2 py-2" />
+        {showCost ? <input name="unit_cost" type="number" step="0.01" placeholder="Unit cost" className="border rounded-lg px-2 py-2" /> : <input type="hidden" name="unit_cost" value="0" />}
+        <button className="bg-[#1A3022] text-white rounded-lg font-semibold">Receive into office</button>
+      </form>
+
+      <div className="bg-white rounded-2xl border overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-[#FAF7F2] text-xs text-[#7A7267]">
+            <tr>
+              <th className="p-3">Product</th>
+              <th className="p-3">Office</th>
+              <th className="p-3">Team</th>
+              <th className="p-3">Client</th>
+              <th className="p-3">Supplier</th>
+              {showCost && <th className="p-3">Unit cost</th>}
+              <th className="p-3">Move</th>
             </tr>
           </thead>
           <tbody>
-            {samples?.map(sample => {
-              const totalQty = (sample.in_office_qty || 0) + (sample.with_client_qty || 0)
-              const totalValue = totalQty * Number(sample.products?.cost_price || 0)
+            {(samples || []).map((sample) => {
+              const product = Array.isArray(sample.product) ? sample.product[0] : sample.product
               return (
-                <tr key={sample.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
-                  <td className="p-3 text-sm text-[var(--color-text-secondary)]">{sample.products?.sku || '-'}</td>
-                  <td className="p-3 text-sm font-medium">
-                    <Link href={`/crm/products/${sample.product_id}`} className="hover:underline">{sample.products?.name}</Link>
+                <tr key={sample.id} className="border-t align-top">
+                  <td className="p-3">
+                    <Link href={`/crm/products/${sample.product_id}`} className="font-medium hover:underline">{product?.name}</Link>
+                    <p className="text-[11px] text-[#7A7267]">{product?.sku}</p>
                   </td>
-                  <td className="p-3 text-sm">{sample.in_office_qty || 0}</td>
-                  <td className="p-3 text-sm">{sample.with_client_qty || 0}</td>
-                  <td className="p-3 text-sm">{sample.pending_supplier_qty || 0}</td>
-                  <td className="p-3 text-sm">{formatCurrency(sample.products?.cost_price || 0)}</td>
-                  <td className="p-3 text-sm font-medium">{formatCurrency(totalValue)}</td>
+                  <td className="p-3">{sample.in_office || 0}</td>
+                  <td className="p-3">{sample.with_team || 0}</td>
+                  <td className="p-3">{sample.with_client || 0}</td>
+                  <td className="p-3">{sample.pending_supplier || 0}</td>
+                  {showCost && <td className="p-3">{formatCurrency(sample.unit_cost)}</td>}
+                  <td className="p-3">
+                    <form action={moveSample} className="grid grid-cols-2 gap-1 text-[11px] min-w-[220px]">
+                      <input type="hidden" name="stock_id" value={sample.id} />
+                      <select name="from_holder" className="border rounded px-1 py-1">
+                        <option value="office">From office</option>
+                        <option value="team">From team</option>
+                        <option value="client">From client</option>
+                        <option value="supplier">From supplier</option>
+                      </select>
+                      <select name="to_holder" className="border rounded px-1 py-1">
+                        <option value="team">To team</option>
+                        <option value="client">To client</option>
+                        <option value="office">To office</option>
+                        <option value="supplier">To supplier</option>
+                      </select>
+                      <input name="quantity" type="number" min="1" defaultValue={1} className="border rounded px-1 py-1" />
+                      <select name="company_id" className="border rounded px-1 py-1">
+                        <option value="">Client (if needed)</option>
+                        {(companies || []).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <input name="note" placeholder="Note / holder name" className="col-span-2 border rounded px-1 py-1" />
+                      <button className="col-span-2 border rounded py-1 font-semibold">Record movement</button>
+                    </form>
+                  </td>
                 </tr>
               )
             })}
             {(!samples || samples.length === 0) && (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-[var(--color-text-secondary)]">No samples found.</td>
-              </tr>
+              <tr><td colSpan={7} className="p-6 text-center text-gray-500">No sample stock yet.</td></tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="bg-white rounded-2xl border p-5">
+        <h2 className="font-serif text-lg mb-3">Movement history</h2>
+        {(movements || []).map((m) => {
+          const product = Array.isArray(m.product) ? m.product[0] : m.product
+          const company = Array.isArray(m.company) ? m.company[0] : m.company
+          return (
+            <p key={m.id} className="text-xs py-1 border-t">
+              {formatDateTime(m.created_at)} · {product?.name} · {m.quantity} · {m.from_holder} → {m.to_holder}
+              {company?.name ? ` · ${company.name}` : ''} {m.note ? ` · ${m.note}` : ''}
+            </p>
+          )
+        })}
+        {(!movements || movements.length === 0) && <p className="text-sm text-gray-500">No movements recorded.</p>}
       </div>
     </div>
   )

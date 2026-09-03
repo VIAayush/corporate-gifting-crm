@@ -21,7 +21,7 @@ export default async function PortalLayoutWrapper({ children }: { children: Reac
     redirect('/login')
   }
 
-  if (profile.role !== 'client_admin') {
+  if (profile.role !== 'client_admin' && profile.role !== 'client_user') {
     redirect('/crm/dashboard')
   }
 

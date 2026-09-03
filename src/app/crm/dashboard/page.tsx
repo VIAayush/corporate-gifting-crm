@@ -1,407 +1,267 @@
-import React from 'react';
-import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/server'
+import { requireStaff, canSeeFinance, applyOrderScope } from '@/lib/auth'
+import { formatCurrency } from '@/lib/utils'
+import { ORDER_LIFECYCLE, ORDER_STATUS_LABELS, orderHealth } from '@/lib/order-workflow'
+import Link from 'next/link'
+
+function Card({ label, value, href, warn }: { label: string; value: string | number; href?: string; warn?: boolean }) {
+  const inner = (
+    <div className={`rounded-2xl border p-5 ${warn ? 'bg-red-50 border-red-100' : 'bg-white border-[#E5DFD5]'}`}>
+      <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">{label}</span>
+      <p className="font-serif text-2xl text-[#1C1917] mt-3">{value}</p>
+    </div>
+  )
+  return href ? <Link href={href}>{inner}</Link> : inner
+}
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const profile = await requireStaff()
+  const supabase = await createClient()
+  const today = new Date().toISOString().slice(0, 10)
 
-  if (!user) {
-    redirect('/login');
-  }
+  let orderQuery = supabase
+    .from('orders')
+    .select('id, status, order_value, expected_delivery_date, assigned_to, current_department_id, stage_due_at, owner_id, company_id')
+  orderQuery = applyOrderScope(orderQuery, profile)
 
-  // Fetch live counts & metrics
   const [
-    companiesRes,
-    leadsRes,
-    requirementsRes,
-    quotationsRes,
-    ordersRes,
-    invoicesRes,
-    activitiesRes,
-    campaignsRes
+    companies,
+    campaigns,
+    leads,
+    requirements,
+    quotations,
+    orders,
+    invoices,
+    payables,
+    departments,
+    staff,
+    tasks,
+    followUps,
   ] = await Promise.all([
-    supabase.from('companies').select('id, name, industry, city'),
-    supabase.from('leads').select('id, stage, estimated_value, company:companies(name)'),
-    supabase.from('requirements').select('id, name, budget, quantity, status, deadline, company:companies(name)').order('created_at', { ascending: false }),
-    supabase.from('quotations').select('id, quotation_number, total, status, valid_until, company:companies(name)').order('created_at', { ascending: false }),
-    supabase.from('orders').select('id, order_number, order_value, status, expected_delivery_date, company:companies(name)').order('created_at', { ascending: false }),
-    supabase.from('invoices').select('id, invoice_number, amount, status, due_date, company:companies(name)'),
-    supabase.from('activities').select('id, type, notes, created_at, company:companies(name)').order('created_at', { ascending: false }).limit(8),
-    supabase.from('campaigns').select('id, title, status, company:companies(name)').limit(5)
-  ]);
+    supabase.from('companies').select('id, status', { count: 'exact' }),
+    supabase.from('campaigns').select('id, status', { count: 'exact' }),
+    supabase.from('leads').select('id, stage, owner_id', { count: 'exact' }),
+    supabase.from('requirements').select('id, status, owner_id', { count: 'exact' }),
+    supabase.from('quotations').select('id, status, total, owner_id', { count: 'exact' }),
+    orderQuery,
+    canSeeFinance(profile.role)
+      ? supabase.from('invoices').select('id, amount, status, order_id')
+      : Promise.resolve({ data: [] as { amount: number; status: string; order_id?: string }[] }),
+    canSeeFinance(profile.role)
+      ? supabase.from('payables').select('amount, status')
+      : Promise.resolve({ data: [] as { amount: number; status: string }[] }),
+    supabase.from('departments').select('id, name, slug'),
+    supabase.from('profiles').select('id, full_name, role, department_id').eq('is_active', true).in('role', ['admin', 'sales', 'operations', 'accounts', 'management']),
+    supabase.from('tasks').select('id, status, due_at, assigned_to, completed_at, department_id'),
+    supabase.from('activities').select('id, title, type, due_at, status, assigned_to').eq('assigned_to', profile.id).neq('status', 'done').order('due_at', { ascending: true }).limit(6),
+  ])
 
-  const companies = companiesRes.data || [];
-  const leads = leadsRes.data || [];
-  const requirements = requirementsRes.data || [];
-  const quotations = quotationsRes.data || [];
-  const orders = ordersRes.data || [];
-  const invoices = invoicesRes.data || [];
-  const activities = activitiesRes.data || [];
-  const campaigns = campaignsRes.data || [];
+  const orderRows = orders.data || []
+  const leadRows = leads.data || []
+  const reqRows = requirements.data || []
+  const quoteRows = quotations.data || []
+  const invoiceRows = invoices.data || []
+  const taskRows = tasks.data || []
+  const deptRows = departments.data || []
+  const staffRows = staff.data || []
 
-  // Metrics calculation
-  const totalCompaniesCount = companies.length || 8;
-  
-  // Active leads (not client/regular_client if any, or total active)
-  const activeLeadsCount = leads.filter(l => !['closed_lost'].includes(l.stage)).length || 6;
-  
-  // Active requirements
-  const activeRequirementsCount = requirements.filter(r => r.status !== 'closed' && r.status !== 'lost').length || 4;
-  
-  // Open quotations (draft, sent)
-  const openQuotationsCount = quotations.filter(q => ['draft', 'sent'].includes(q.status)).length || 3;
-  
-  // Active / total orders
-  const ordersCount = orders.length || 8;
-  
-  // Total order value sum
-  const totalOrderValue = orders.reduce((acc, o) => acc + (Number(o.order_value) || 0), 0) || 11051180;
-  
-  // Revenue received (paid or partially paid invoice amounts, or delivered orders)
-  const revenueReceived = 334000;
-  
-  // Outstanding receivables
-  const totalOutstanding = 560086;
-  
-  // In progress orders
-  const inProgressOrdersCount = orders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length || 4;
-  
-  // Delivered orders
-  const deliveredOrdersCount = orders.filter(o => o.status === 'delivered').length || 0;
+  const mine = (ownerId?: string | null) => ownerId === profile.id
+  const salesLeads = profile.role === 'sales' ? leadRows.filter((l) => mine(l.owner_id)) : leadRows
+  const salesReqs = profile.role === 'sales' ? reqRows.filter((r) => mine(r.owner_id)) : reqRows
+  const salesQuotes = profile.role === 'sales' ? quoteRows.filter((q) => mine(q.owner_id)) : quoteRows
+  const salesOrders = profile.role === 'sales' ? orderRows.filter((o) => mine(o.owner_id) || o.assigned_to === profile.id) : orderRows
 
-  // Pipeline stages breakdown
-  const stageValues: Record<string, { count: number; value: number }> = {
-    cold: { count: 0, value: 0 },
-    warm: { count: 0, value: 0 },
-    hot: { count: 0, value: 0 },
-    client: { count: 0, value: 0 },
-    regular_client: { count: 0, value: 0 }
-  };
+  const totalOrderValue = orderRows.reduce((s, o) => s + Number(o.order_value || 0), 0)
+  const inProgress = orderRows.filter((o) => !['delivered', 'cancelled'].includes(o.status))
+  const delayed = inProgress.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
+  const atRisk = inProgress.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'at_risk')
+  const unassigned = inProgress.filter((o) => !o.assigned_to)
+  const delivered = orderRows.filter((o) => o.status === 'delivered')
+  const invoicedIds = new Set(invoiceRows.map((i) => i.order_id).filter(Boolean))
+  const readyToInvoice = delivered.filter((o) => !invoicedIds.has(o.id)).length
+  const won = orderRows.filter((o) => !['created', 'cancelled'].includes(o.status)).length
+  const lost = reqRows.filter((r) => r.status === 'lost').length
+  const quoteToOrder = quoteRows.length ? Math.round((won / quoteRows.length) * 100) : 0
+  const reqToQuote = reqRows.length ? Math.round((quoteRows.length / reqRows.length) * 100) : 0
+  const invoiced = invoiceRows.reduce((s, i) => s + Number(i.amount || 0), 0)
+  const paid = invoiceRows.filter((i) => i.status === 'paid').reduce((s, i) => s + Number(i.amount || 0), 0)
+  const unpaid = invoiceRows.filter((i) => ['unpaid', 'issued'].includes(i.status))
+  const partial = invoiceRows.filter((i) => i.status === 'partially_paid')
+  const overdueInv = invoiceRows.filter((i) => i.status === 'overdue')
+  const outstanding = invoiced - paid
+  const payableTotal = (payables.data || []).reduce((s, p) => s + Number(p.amount || 0), 0)
 
-  leads.forEach(l => {
-    const s = l.stage || 'cold';
-    if (stageValues[s]) {
-      stageValues[s].count += 1;
-      stageValues[s].value += Number(l.estimated_value) || 0;
+  const byStage = ORDER_LIFECYCLE.map((st) => {
+    const rows = orderRows.filter((o) => o.status === st)
+    return {
+      st,
+      n: rows.length,
+      value: rows.reduce((s, o) => s + Number(o.order_value || 0), 0),
+      overdue: rows.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed').length,
     }
-  });
+  })
 
-  // Fallback realistic seed pipeline if leads table is minimal
-  if (stageValues.cold.count === 0 && stageValues.hot.count === 0) {
-    stageValues.cold = { count: 2, value: 210000 };
-    stageValues.warm = { count: 2, value: 310000 };
-    stageValues.hot = { count: 2, value: 1480000 };
-    stageValues.client = { count: 1, value: 910000 };
-    stageValues.regular_client = { count: 1, value: 1250000 };
-  }
+  const deptStats = deptRows.map((d) => {
+    const rows = orderRows.filter((o) => o.current_department_id === d.id)
+    const active = rows.filter((o) => !['delivered', 'cancelled'].includes(o.status))
+    const overdue = active.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
+    const completed = rows.filter((o) => o.status === 'delivered')
+    const unassignedDept = active.filter((o) => !o.assigned_to)
+    return { ...d, active: active.length, overdue: overdue.length, completed: completed.length, unassigned: unassignedDept.length }
+  })
 
-  const maxPipelineVal = Math.max(...Object.values(stageValues).map(v => v.value), 1500000);
+  const people = staffRows.map((p) => {
+    const assigned = inProgress.filter((o) => o.assigned_to === p.id)
+    const pending = taskRows.filter((t) => t.assigned_to === p.id && t.status !== 'done' && !t.completed_at)
+    const overdue = pending.filter((t) => t.due_at && t.due_at < today)
+    const completed = taskRows.filter((t) => t.assigned_to === p.id && (t.status === 'done' || t.completed_at))
+    return { ...p, assigned: assigned.length, pending: pending.length, overdue: overdue.length, completed: completed.length }
+  }).filter((p) => profile.role === 'admin' || profile.role === 'management' || p.id === profile.id || p.department_id === profile.department_id)
 
-  // Status badge styling helper
-  const getStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'printing':
-        return 'bg-[#F3EAD8] text-[#8A5A1B] border border-[#E8DCBF]';
-      case 'quality_check':
-        return 'bg-[#EAE4F2] text-[#5B3D7B] border border-[#DDD3E8]';
-      case 'ready_to_dispatch':
-      case 'ready to dispatch':
-        return 'bg-[#E2EDF8] text-[#2B5880] border border-[#CFE1F3]';
-      case 'dispatched':
-      case 'dispatch':
-        return 'bg-[#F8EBD8] text-[#91571B] border border-[#EED7B8]';
-      case 'procurement':
-      case 'supplier_coordination':
-        return 'bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]';
-      case 'created':
-      case 'received':
-      case 'draft':
-        return 'bg-[#EBE7DF] text-[#5E5950] border border-[#DFDAD0]';
-      case 'accepted':
-      case 'won':
-      case 'delivered':
-      case 'client':
-        return 'bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA]';
-      case 'sent':
-      case 'quoted':
-        return 'bg-[#E1EFFE] text-[#1E429F] border border-[#BEE3F8]';
-      case 'rejected':
-      case 'cancelled':
-        return 'bg-[#FDE8E8] text-[#9B1C1C] border border-[#F8B4B4]';
-      default:
-        return 'bg-[#EBE7DF] text-[#5E5950] border border-[#DFDAD0]';
-    }
-  };
-
-  const formatStatusLabel = (status: string) => {
-    if (!status) return '?';
-    return status
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, c => c.toUpperCase());
-  };
+  const greeting = profile.full_name?.split(' ')[0] || 'there'
+  const roleTitle =
+    profile.role === 'admin' ? 'Organization overview — view all' :
+    profile.role === 'management' ? 'Exceptions and performance' :
+    profile.role === 'sales' ? 'What needs a follow-up' :
+    profile.role === 'operations' ? 'What is pending, delayed, or due' :
+    profile.role === 'accounts' ? 'What is ready to invoice or collect' : 'What do I need to do?'
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8">
-      {/* Header */}
       <div>
-        <h1 className="font-serif text-3xl font-normal text-[#1C1917] tracking-tight">
-          Good day, Asha
-        </h1>
-        <p className="text-xs text-[#7A7267] mt-1 font-normal">
-          What needs attention today across pipeline, operations, and collections.
-        </p>
+        <h1 className="font-serif text-3xl text-[#1C1917]">Good day, {greeting}</h1>
+        <p className="text-xs text-[#7A7267] mt-1">{roleTitle}</p>
       </div>
 
-      {/* KPI Cards Grid ? 2 Rows of 5 Cards */}
-      <div className="space-y-4">
-        {/* Row 1 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">COMPANIES</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{totalCompaniesCount}</span>
+      {(profile.role === 'admin' || profile.role === 'management') && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <Card label="Clients" value={companies.count || 0} href="/crm/companies" />
+            <Card label="Campaigns" value={campaigns.count || 0} href="/crm/campaigns" />
+            <Card label="Requirements" value={requirements.count || 0} href="/crm/requirements" />
+            <Card label="Quotations" value={quotations.count || 0} href="/crm/quotations" />
+            <Card label="Orders" value={orderRows.length} href="/crm/order-management" />
+            <Card label="Order value" value={formatCurrency(totalOrderValue)} />
+            <Card label="In progress" value={inProgress.length} />
+            <Card label="Due soon" value={atRisk.length} href="/crm/order-management?health=at_risk" />
+            <Card label="Delayed" value={delayed.length} href="/crm/order-management?health=delayed" warn={delayed.length > 0} />
+            <Card label="Delivered" value={delivered.length} />
+            {canSeeFinance(profile.role) && <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />}
+            {canSeeFinance(profile.role) && <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />}
           </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">ACTIVE LEADS</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{activeLeadsCount}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">ACTIVE REQUIREMENTS</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{activeRequirementsCount}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">OPEN QUOTATIONS</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{openQuotationsCount}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">ORDERS</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{ordersCount}</span>
-          </div>
-        </div>
 
-        {/* Row 2 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">ORDER VALUE</span>
-            <span className="font-serif text-2xl text-[#1C1917] mt-3 font-medium tracking-tight">{formatCurrency(totalOrderValue)}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">REVENUE RECEIVED</span>
-            <span className="font-serif text-2xl text-[#1C1917] mt-3 font-medium tracking-tight">{formatCurrency(revenueReceived)}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">OUTSTANDING</span>
-            <span className="font-serif text-2xl text-[#1C1917] mt-3 font-medium tracking-tight">{formatCurrency(totalOutstanding)}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">IN PROGRESS</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{inProgressOrdersCount}</span>
-          </div>
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)] flex flex-col justify-between">
-            <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">DELIVERED</span>
-            <span className="font-serif text-3xl text-[#1C1917] mt-3 font-normal">{deliveredOrdersCount}</span>
-          </div>
-        </div>
-      </div>
+          {profile.role === 'management' && (
+            <div className="bg-white rounded-2xl border p-5">
+              <h2 className="font-serif text-lg mb-3">Exceptions</h2>
+              <p className="text-sm">Delayed: {delayed.length} · At risk: {atRisk.length} · Unassigned: {unassigned.length}</p>
+              <Link href="/crm/order-management?health=delayed" className="text-xs underline mt-2 inline-block">Open delayed orders</Link>
+            </div>
+          )}
 
-      {/* Main Grid: Left Section & Right Side Widgets */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column (7 cols) */}
-        <div className="lg:col-span-7 space-y-8">
-          {/* Needs attention */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <h2 className="font-serif text-lg font-normal text-[#1C1917] mb-4">
-              Needs attention
-            </h2>
-            <div className="space-y-3">
-              <Link href="/crm/quotations/aa000000-0000-4000-8000-000000000001" className="block p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0] hover:border-[#D6CEBE] transition-all">
-                <p className="text-xs font-semibold text-[#1C1917]">Quotation awaiting response</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">Q-2026-1001 ? Helios Digital</p>
-              </Link>
-
-              <div className="p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <p className="text-xs font-semibold text-[#1C1917]">Follow-up due</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">WhatsApp Joseph on GST invoice ? 30 Aug 2026</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <p className="text-xs font-semibold text-[#1C1917]">Follow-up due</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">Send revised Helios quote ? 31 Aug 2026</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <p className="text-xs font-semibold text-[#1C1917]">Follow-up due</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">Cedar overdue reminder ? 31 Aug 2026</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <p className="text-xs font-semibold text-[#1C1917]">Follow-up due</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">Confirm Laserleaf slot ? 31 Aug 2026</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <p className="text-xs font-semibold text-[#1C1917]">Follow-up due</p>
-                <p className="text-[11px] text-[#7A7267] mt-0.5">Share mockup folder with Rhea ? 31 Aug 2026</p>
-              </div>
+          <div className="bg-white rounded-2xl border p-6">
+            <div className="flex justify-between mb-4">
+              <h2 className="font-serif text-lg">Orders by stage</h2>
+              <Link href="/crm/order-management?view=kanban" className="text-xs underline">Kanban</Link>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {byStage.map((s) => (
+                <Link key={s.st} href={`/crm/order-management?stage=${s.st}`} className="p-3 rounded-xl bg-[#FAF7F2] border">
+                  <p className="text-[11px] text-[#7A7267]">{ORDER_STATUS_LABELS[s.st]}</p>
+                  <p className="text-xl font-semibold mt-1">{s.n}</p>
+                  <p className="text-[11px] text-[#7A7267]">{formatCurrency(s.value)} · {s.overdue} overdue</p>
+                </Link>
+              ))}
             </div>
           </div>
 
-          {/* Recent Orders */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-serif text-lg font-normal text-[#1C1917]">
-                Recent orders
-              </h2>
-              <Link href="/crm/orders" className="text-xs text-[#7A7267] hover:text-[#1C1917] font-medium">
-                View all
-              </Link>
-            </div>
-
-            <div className="space-y-3">
-              {orders.slice(0, 7).map((order) => {
-                const compName = (order.company as any)?.name || 'Client';
-                return (
-                  <Link
-                    key={order.id}
-                    href={`/crm/orders/${order.id}`}
-                    className="flex items-center justify-between p-3.5 rounded-xl hover:bg-[#FAF7F2] transition-all border border-transparent hover:border-[#EFE9E0]"
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-[#1C1917]">{order.order_number}</p>
-                      <p className="text-[11px] text-[#7A7267] mt-0.5">{compName} ? {formatCurrency(order.order_value)}</p>
-                    </div>
-                    <span className={`text-[11px] font-medium px-3 py-1 rounded-full ${getStatusBadge(order.status)}`}>
-                      {formatStatusLabel(order.status)}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column (5 cols) */}
-        <div className="lg:col-span-5 space-y-8">
-          {/* Sales pipeline */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <h2 className="font-serif text-lg font-normal text-[#1C1917] mb-5">
-              Sales pipeline
-            </h2>
-
-            <div className="space-y-4">
-              {[
-                { label: 'Cold', key: 'cold' },
-                { label: 'Warm', key: 'warm' },
-                { label: 'Hot', key: 'hot' },
-                { label: 'Client', key: 'client' },
-                { label: 'Regular Client', key: 'regular_client' },
-              ].map(({ label, key }) => {
-                const data = stageValues[key] || { count: 0, value: 0 };
-                const pct = Math.min(Math.max((data.value / maxPipelineVal) * 100, 4), 100);
-
-                return (
-                  <div key={key} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-[#5A5248] font-medium">{label}</span>
-                      <span className="text-[#1C1917] font-semibold">{data.count} ? {formatCurrency(data.value)}</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-[#EFE9E0] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#1A3022] rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Campaigns / Client Projects */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <h2 className="font-serif text-lg font-normal text-[#1C1917] mb-4">
-              Campaigns
-            </h2>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <div>
-                  <p className="text-xs font-bold text-[#1C1917]">Wipro</p>
-                  <p className="text-[11px] text-[#7A7267] mt-0.5">1000 ? ?30,00,000</p>
+          {profile.role === 'admin' && (
+            <>
+              <div className="bg-white rounded-2xl border p-6">
+                <h2 className="font-serif text-lg mb-3">Departments</h2>
+                <div className="grid md:grid-cols-3 gap-3">
+                  {deptStats.map((d) => (
+                    <Link key={d.id} href={`/crm/order-management?department=${d.id}`} className="p-3 rounded-xl border bg-[#FAF7F2]">
+                      <p className="text-sm font-semibold">{d.name}</p>
+                      <p className="text-[11px] text-[#7A7267] mt-1">Active {d.active} · Overdue {d.overdue} · Unassigned {d.unassigned} · Done {d.completed}</p>
+                    </Link>
+                  ))}
                 </div>
-                <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#DEF7EC] text-[#03543F]">
-                  Active
-                </span>
               </div>
-
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
-                <div>
-                  <p className="text-xs font-bold text-[#1C1917]">Nexora Onboarding 2026</p>
-                  <p className="text-[11px] text-[#7A7267] mt-0.5">Nexora Systems ? 200 ? ?3,00,000</p>
-                </div>
-                <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#E1EFFE] text-[#1E429F]">
-                  Published To Client
-                </span>
+              <div className="bg-white rounded-2xl border p-6 overflow-x-auto">
+                <h2 className="font-serif text-lg mb-3">People</h2>
+                <table className="w-full text-xs">
+                  <thead className="text-left text-[#7A7267]">
+                    <tr><th className="py-2">Employee</th><th>Role</th><th>Assigned orders</th><th>Pending tasks</th><th>Overdue</th><th>Completed</th></tr>
+                  </thead>
+                  <tbody>
+                    {people.map((p) => (
+                      <tr key={p.id} className="border-t">
+                        <td className="py-2">{p.full_name}</td>
+                        <td>{p.role}</td>
+                        <td>{p.assigned}</td>
+                        <td>{p.pending}</td>
+                        <td className={p.overdue ? 'text-red-700 font-semibold' : ''}>{p.overdue}</td>
+                        <td>{p.completed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          </div>
+            </>
+          )}
+        </>
+      )}
 
-          {/* Active Requirements */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <h2 className="font-serif text-lg font-normal text-[#1C1917] mb-4">
-              Active requirements
-            </h2>
-            <div className="space-y-3">
-              {requirements.slice(0, 5).map((req) => {
-                const compName = (req.company as any)?.name || 'Company';
-                return (
-                  <Link
-                    key={req.id}
-                    href={`/crm/requirements/${req.id}`}
-                    className="flex items-center justify-between p-3 rounded-xl hover:bg-[#FAF7F2] transition-all border border-transparent hover:border-[#EFE9E0]"
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-[#1C1917]">{req.name}</p>
-                      <p className="text-[11px] text-[#7A7267] mt-0.5">{compName} {req.deadline ? `? ${formatDate(req.deadline)}` : ''}</p>
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${getStatusBadge(req.status)}`}>
-                      {formatStatusLabel(req.status)}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
+      {profile.role === 'sales' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card label="My leads" value={salesLeads.length} href="/crm/leads" />
+            <Card label="My requirements" value={salesReqs.filter((r) => r.status === 'active').length} href="/crm/requirements" />
+            <Card label="Awaiting response" value={salesQuotes.filter((q) => q.status === 'sent').length} href="/crm/quotations" />
+            <Card label="Won orders" value={salesOrders.filter((o) => o.status === 'delivered' || o.status === 'confirmed').length} href="/crm/orders" />
+            <Card label="Req → quote" value={`${reqToQuote}%`} />
+            <Card label="Quote → order" value={`${quoteToOrder}%`} />
+            <Card label="Revenue (won)" value={formatCurrency(salesOrders.reduce((s, o) => s + Number(o.order_value || 0), 0))} />
+            <Card label="My work" value="Open" href="/crm/my-work" />
           </div>
-
-          {/* Recent Quotations */}
-          <div className="bg-white rounded-2xl border border-[#E5DFD5] p-6 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-            <h2 className="font-serif text-lg font-normal text-[#1C1917] mb-4">
-              Recent quotations
-            </h2>
-            <div className="space-y-3">
-              {quotations.slice(0, 6).map((quote) => {
-                const compName = (quote.company as any)?.name || 'Client';
-                return (
-                  <Link
-                    key={quote.id}
-                    href={`/crm/quotations/${quote.id}`}
-                    className="flex items-center justify-between p-3 rounded-xl hover:bg-[#FAF7F2] transition-all border border-transparent hover:border-[#EFE9E0]"
-                  >
-                    <div>
-                      <p className="text-xs font-bold text-[#1C1917]">{quote.quotation_number}</p>
-                      <p className="text-[11px] text-[#7A7267] mt-0.5">{compName} ? {formatCurrency(quote.total)}</p>
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${getStatusBadge(quote.status)}`}>
-                      {formatStatusLabel(quote.status)}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
+          <div className="bg-white rounded-2xl border p-5">
+            <h2 className="font-serif text-lg mb-2">Upcoming follow-ups</h2>
+            {(followUps.data || []).map((a) => (
+              <p key={a.id} className="text-sm py-1">{a.type} · {a.title}</p>
+            ))}
+            {(!followUps.data || followUps.data.length === 0) && <p className="text-sm text-gray-500">No follow-ups due.</p>}
+            <Link href="/crm/activities" className="text-xs underline mt-2 inline-block">Activity feed</Link>
           </div>
         </div>
-      </div>
+      )}
+
+      {profile.role === 'operations' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card label="Assigned to me" value={inProgress.filter((o) => o.assigned_to === profile.id).length} href="/crm/my-work" />
+            <Card label="Department work" value={inProgress.filter((o) => o.current_department_id === profile.department_id).length} href="/crm/department" />
+            <Card label="Delayed" value={delayed.length} href="/crm/order-management?health=delayed" warn={delayed.length > 0} />
+            <Card label="Procurement" value={orderRows.filter((o) => o.status === 'procurement').length} href="/crm/order-management?stage=procurement" />
+            <Card label="Printing" value={orderRows.filter((o) => o.status === 'printing').length} href="/crm/order-management?stage=printing" />
+            <Card label="QC" value={orderRows.filter((o) => o.status === 'quality_check').length} href="/crm/order-management?stage=quality_check" />
+            <Card label="Dispatch" value={orderRows.filter((o) => o.status === 'ready_to_dispatch' || o.status === 'dispatched').length} href="/crm/order-management?stage=ready_to_dispatch" />
+            <Card label="Kanban" value="Board" href="/crm/order-management?view=kanban" />
+          </div>
+        </div>
+      )}
+
+      {profile.role === 'accounts' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card label="Ready to invoice" value={readyToInvoice} href="/crm/orders" />
+          <Card label="Invoices" value={invoiceRows.length} href="/crm/invoices" />
+          <Card label="Unpaid" value={unpaid.length} href="/crm/receivables" />
+          <Card label="Partial" value={partial.length} href="/crm/receivables" />
+          <Card label="Overdue" value={overdueInv.length} href="/crm/receivables" warn={overdueInv.length > 0} />
+          <Card label="Received" value={formatCurrency(paid)} href="/crm/payments" />
+          <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />
+          <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />
+        </div>
+      )}
     </div>
-  );
+  )
 }

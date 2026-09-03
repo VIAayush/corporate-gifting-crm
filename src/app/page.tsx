@@ -13,8 +13,8 @@ export default async function RootPage() {
     .eq("id", user.id)
     .single()
 
-  if (profile?.role === "client_admin") {
-    redirect("/portal/catalogue")
+  if (profile?.role === "client_admin" || profile?.role === "client_user") {
+    redirect("/portal")
   }
 
   redirect("/crm/dashboard")

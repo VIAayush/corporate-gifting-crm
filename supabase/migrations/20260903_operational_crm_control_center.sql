@@ -1,0 +1,5 @@
+-- Applied remotely via Supabase MCP on 2026-09-03
+-- See production project ajysowosgjaipczrwpfv
+-- Adds quality department, orders.campaign_id, client order/invoice RLS,
+-- stage history on advance_order_stage, and operational indexes.
+-- Data was not reset.

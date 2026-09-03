@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { isSafeNext } from "@/lib/safe-next"
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -10,7 +11,7 @@ export async function proxy(request: NextRequest) {
     {
       cookies: {
         getAll() { return request.cookies.getAll() },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -22,15 +23,29 @@ export async function proxy(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
+  const { pathname, search } = request.nextUrl
 
-  // Allow public routes
-  if (pathname.startsWith("/login") || pathname.startsWith("/_next") || pathname === "/favicon.ico") {
+  if (
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico"
+  ) {
+    return supabaseResponse
+  }
+
+  if (pathname.startsWith("/login")) {
+    if (user) {
+      const next = request.nextUrl.searchParams.get("next")
+      const dest = isSafeNext(next) ? next : "/"
+      return NextResponse.redirect(new URL(dest, request.url))
+    }
     return supabaseResponse
   }
 
   if (!user) {
-    return NextResponse.redirect(new URL("/login", request.url))
+    const login = new URL("/login", request.url)
+    const intended = `${pathname}${search}`
+    if (isSafeNext(intended)) login.searchParams.set("next", intended)
+    return NextResponse.redirect(login)
   }
 
   return supabaseResponse

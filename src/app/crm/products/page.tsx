@@ -2,13 +2,19 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, Search, Package, Globe, Lock, EyeOff } from 'lucide-react'
+import { ProductImage } from '@/components/ui/product-image'
+import { Plus, Search, Globe, Lock, EyeOff } from 'lucide-react'
 
-export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; access?: string }> }) {
+const PAGE_SIZE = 50
+
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; access?: string; page?: string }> }) {
   const params = await searchParams
-  const search = params.q || ''
+  const search = (params.q || '').replace(/[,()*]/g, ' ').trim()
   const statusFilter = params.status || 'all'
-  const accessFilter = params.access || 'all'
+  // '' means "any visibility"; 'all' | 'selected' | 'none' filter on the real value.
+  const accessFilter = params.access ?? ''
+  const currentPage = Math.max(1, Number.parseInt(params.page || '1', 10) || 1)
+  const from = (currentPage - 1) * PAGE_SIZE
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -16,7 +22,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   let query = supabase
     .from('products')
-    .select('*, category:categories(id, name), brand:brands(id, name), company_product_access(count)')
+    .select('*, category:categories(id, name), brand:brands(id, name), company_product_access(count)', { count: 'exact' })
     .order('name')
 
   if (search) {
@@ -27,11 +33,26 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     query = query.eq('status', statusFilter)
   }
 
-  if (accessFilter !== 'all') {
+  if (accessFilter) {
     query = query.eq('catalogue_access', accessFilter)
   }
 
-  const { data: products } = await query
+  const { data: products, count } = await query.range(from, from + PAGE_SIZE - 1)
+
+  const total = count || 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const buildHref = (overrides: Record<string, string>) => {
+    const next = new URLSearchParams()
+    if (search) next.set('q', search)
+    if (statusFilter !== 'all') next.set('status', statusFilter)
+    if (accessFilter) next.set('access', accessFilter)
+    Object.entries(overrides).forEach(([key, value]) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    })
+    const qs = next.toString()
+    return `/crm/products${qs ? `?${qs}` : ''}`
+  }
 
   return (
     <div className="space-y-6">
@@ -39,7 +60,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Product Catalogue</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            {products?.length || 0} products available for corporate gifting campaigns
+            Every product carries a unique SKU and its own client visibility. {total} in the catalogue.
           </p>
         </div>
         <Link
@@ -72,17 +93,22 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 font-medium">Visibility:</span>
-          {['all', 'selected', 'none'].map((acc) => (
+          {[
+            { value: '', label: 'Any' },
+            { value: 'all', label: 'All Clients' },
+            { value: 'selected', label: 'Selected Clients' },
+            { value: 'none', label: 'Internal Only' },
+          ].map((option) => (
             <Link
-              key={acc}
-              href={`/crm/products?access=${acc}${search ? `&q=${search}` : ''}`}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize transition-colors ${
-                accessFilter === acc
-                  ? 'bg-[#4A235A] text-white'
+              key={option.value || 'any'}
+              href={buildHref({ access: option.value, page: '' })}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                accessFilter === option.value
+                  ? 'bg-[var(--color-primary)] text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {acc === 'all' ? 'All Clients' : (acc === 'selected' ? 'Personalized' : 'Internal Only')}
+              {option.label}
             </Link>
           ))}
         </div>
@@ -107,12 +133,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <tr key={p.id} className="hover:bg-gray-50/80 transition-colors">
                   <td className="px-4 py-3">
                     <Link href={`/crm/products/${p.id}`} className="flex items-center gap-3 group">
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                        {p.image_url ? (
-                          <img src={p.image_url} alt={p.name} className="w-full h-full object-contain p-1" />
-                        ) : (
-                          <Package size={16} className="text-gray-400" />
-                        )}
+                      <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">
+                        <ProductImage src={p.image_url} alt={p.name} size="sm" className="rounded-lg border border-gray-200" />
                       </div>
                       <div>
                         <p className="font-bold text-gray-900 group-hover:text-[#4A235A] transition-colors">
@@ -123,7 +145,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-600 font-medium">
-                    {p.category?.name || '?'}
+                    {p.category?.name || '—'}
                   </td>
                   <td className="px-4 py-3 font-bold text-gray-900">
                     {formatCurrency(p.price)}
@@ -134,12 +156,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                   <td className="px-4 py-3">
                     {p.catalogue_access === 'all' && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800">
-                        <Globe size={11} /> All Clients
+                        <Globe size={11} /> All companies
                       </span>
                     )}
                     {p.catalogue_access === 'selected' && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-[#4A235A]">
-                        <Lock size={11} /> Personalized ({companyCount} {companyCount === 1 ? 'co' : 'cos'})
+                        <Lock size={11} /> {companyCount} {companyCount === 1 ? 'company' : 'companies'}
                       </span>
                     )}
                     {p.catalogue_access === 'none' && (
@@ -168,6 +190,28 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          {currentPage > 1 ? (
+            <Link href={buildHref({ page: String(currentPage - 1) })} className="text-xs font-medium text-[var(--color-primary)] hover:underline">
+              ← Previous
+            </Link>
+          ) : (
+            <span />
+          )}
+          <span className="text-xs text-gray-500">
+            Page {currentPage} of {totalPages} · {total} products
+          </span>
+          {currentPage < totalPages ? (
+            <Link href={buildHref({ page: String(currentPage + 1) })} className="text-xs font-medium text-[var(--color-primary)] hover:underline">
+              Next →
+            </Link>
+          ) : (
+            <span />
+          )}
+        </div>
+      )}
     </div>
   )
 }

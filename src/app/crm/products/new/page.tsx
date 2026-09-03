@@ -177,7 +177,7 @@ export default async function NewProductPage() {
                 <div>
                   <div className="flex items-center gap-1.5 font-bold text-xs text-gray-900">
                     <Globe className="w-3.5 h-3.5 text-green-600" />
-                    All Clients
+                    All companies
                   </div>
                   <p className="text-[11px] text-gray-500 mt-1">
                     Visible in every corporate client portal catalogue.

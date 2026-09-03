@@ -37,7 +37,7 @@ export default async function RequirementDetailPage({
       .single(),
     supabase.from('requirement_products').select('*, product:products(*)').eq('requirement_id', id),
     supabase.from('quotations').select('*').eq('requirement_id', id).order('created_at', { ascending: false }),
-    supabase.from('activities').select('*, created_by_profile:profiles!activities_created_by_fkey(id, full_name)').eq('requirement_id', id).order('created_at', { ascending: false })
+    supabase.from('activities').select('*, created_by_profile:profiles!activities_created_by_fkey(id, full_name)').eq('related_type', 'requirement').eq('related_id', id).order('created_at', { ascending: false })
   ])
 
   if (!req) notFound()
