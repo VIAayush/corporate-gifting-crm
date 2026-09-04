@@ -23,7 +23,7 @@ export function Topbar({
   notifications?: Note[]
   onMenuClick?: () => void
 }) {
-  const email = user?.email || 'admin@oaklane.demo'
+  const email = user?.email || ''
   const unread = notifications.filter((n) => !n.read_at).length
   const [open, setOpen] = useState(false)
   const [, start] = useTransition()

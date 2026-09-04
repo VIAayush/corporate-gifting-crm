@@ -2,13 +2,14 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
 import { requireStaff } from '@/lib/auth'
 import { updateQuotationStatus, convertToOrder, duplicateQuotation } from '../actions'
 import { FileText, CheckCircle2, XCircle, Copy, ArrowRight } from 'lucide-react'
 
 export default async function QuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   await requireStaff()
   const supabase = await createClient()
 
@@ -24,6 +25,10 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
     .maybeSingle()
 
   if (!quote) notFound()
+
+  const company = oneRelation(quote.company)
+  const contact = oneRelation(quote.contact)
+  const requirement = oneRelation(quote.requirement)
 
   const [{ data: items }, { data: linkedOrder }] = await Promise.all([
     supabase.from('quotation_items').select('*, product:products(id, name, sku, image_url)').eq('quotation_id', quote.id),
@@ -77,11 +82,11 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
             </span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Quotation for {(quote.company as any)?.name || 'Client'}
+            Quotation for {company?.name || 'Client'}
           </h1>
-          {quote.requirement && (
+          {requirement && (
             <p className="text-xs text-gray-500 mt-0.5">
-              Requirement: <span className="font-medium text-gray-700">{(quote.requirement as any).name}</span>
+              Requirement: <span className="font-medium text-gray-700">{requirement.name}</span>
             </p>
           )}
         </div>
@@ -134,9 +139,9 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-5 rounded-xl border border-gray-200 text-xs space-y-2.5">
           <h3 className="font-bold text-gray-900 pb-2 border-b">Client Details</h3>
-          <div><span className="text-gray-500 w-20 inline-block">Company:</span> <span className="font-semibold text-gray-900">{(quote.company as any)?.name}</span></div>
-          <div><span className="text-gray-500 w-20 inline-block">Contact:</span> {(quote.contact as any)?.full_name || '?'}</div>
-          <div><span className="text-gray-500 w-20 inline-block">Email:</span> {(quote.contact as any)?.email || '?'}</div>
+          <div><span className="text-gray-500 w-20 inline-block">Company:</span> <span className="font-semibold text-gray-900">{company?.name}</span></div>
+          <div><span className="text-gray-500 w-20 inline-block">Contact:</span> {contact?.full_name || '?'}</div>
+          <div><span className="text-gray-500 w-20 inline-block">Email:</span> {contact?.email || '?'}</div>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 text-xs space-y-2.5">
@@ -163,17 +168,20 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {items?.map((item: any) => (
+            {items?.map((item: { id: string; quantity: number; unit_price: number; line_total: number; product?: { name?: string; sku?: string } | { name?: string; sku?: string }[] | null }) => {
+              const product = oneRelation(item.product)
+              return (
               <tr key={item.id} className="hover:bg-gray-50/50">
                 <td className="p-3.5">
-                  <div className="font-bold text-gray-900">{item.product?.name || 'Item'}</div>
-                  <div className="text-gray-400 font-mono text-[10px]">{item.product?.sku}</div>
+                  <div className="font-bold text-gray-900">{product?.name || 'Item'}</div>
+                  <div className="text-gray-400 font-mono text-[10px]">{product?.sku}</div>
                 </td>
                 <td className="p-3.5 text-right font-medium">{item.quantity}</td>
                 <td className="p-3.5 text-right">{formatCurrency(item.unit_price)}</td>
                 <td className="p-3.5 text-right font-bold text-gray-900">{formatCurrency(item.line_total)}</td>
               </tr>
-            ))}
+              )
+            })}
             {(!items || items.length === 0) && (
               <tr><td colSpan={4} className="p-6 text-center text-gray-400">No line items in this quotation.</td></tr>
             )}
@@ -185,13 +193,13 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
             <span>Subtotal:</span>
             <span>{formatCurrency(quote.subtotal)}</span>
           </div>
-          {quote.discount_amount > 0 && (
+          {Number(quote.discount_amount) > 0 && (
             <div className="flex justify-between w-60 text-green-600 font-medium">
               <span>Discount ({quote.discount_percent}%):</span>
               <span>-{formatCurrency(quote.discount_amount)}</span>
             </div>
           )}
-          {quote.tax_amount > 0 && (
+          {Number(quote.tax_amount) > 0 && (
             <div className="flex justify-between w-60 text-gray-600">
               <span>GST / Tax ({quote.tax_percent}%):</span>
               <span>{formatCurrency(quote.tax_amount)}</span>

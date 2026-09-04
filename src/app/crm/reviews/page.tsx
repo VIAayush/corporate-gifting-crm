@@ -10,6 +10,11 @@ export default async function ReviewsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+  if (profile?.role !== 'admin' && profile?.role !== 'management') {
+    redirect('/crm/access-denied')
+  }
+
   const [{ data: reviews }, { data: companies }, { data: orders }] = await Promise.all([
     supabase.from('reviews').select('*, company:companies(name), order:orders(order_number)').order('created_at', { ascending: false }),
     supabase.from('companies').select('id, name').order('name'),

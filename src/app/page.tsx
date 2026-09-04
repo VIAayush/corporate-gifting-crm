@@ -11,7 +11,7 @@ export default async function RootPage() {
     .from("profiles")
     .select("role")
     .eq("id", user.id)
-    .single()
+    .maybeSingle()
 
   if (profile?.role === "client_admin" || profile?.role === "client_user") {
     redirect("/portal")

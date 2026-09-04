@@ -16,9 +16,11 @@ export async function createContact(formData: FormData) {
     email: String(formData.get('email') || '') || null,
     phone: String(formData.get('phone') || '') || null,
     contact_type: String(formData.get('contact_type') || 'primary'),
+    kind: 'corporate',
     notes: String(formData.get('notes') || '') || null,
   })
   if (error) return { error: error.message }
   revalidatePath('/crm/contacts')
+  revalidatePath(`/crm/companies/${companyId}`)
   return { success: true }
 }

@@ -13,11 +13,16 @@ export default async function PortalLayoutWrapper({ children }: { children: Reac
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, company_id')
+    .select('id, full_name, email, role, company_id, is_active')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
   if (!profile) {
+    redirect('/login')
+  }
+
+  if (profile.is_active === false) {
+    await supabase.auth.signOut()
     redirect('/login')
   }
 
@@ -32,7 +37,7 @@ export default async function PortalLayoutWrapper({ children }: { children: Reac
       .from('companies')
       .select('name')
       .eq('id', profile.company_id)
-      .single()
+      .maybeSingle()
     if (company) companyName = company.name
   }
 

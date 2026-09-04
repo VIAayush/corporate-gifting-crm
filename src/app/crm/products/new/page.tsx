@@ -1,14 +1,19 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
 import { createProduct } from '../actions'
 import { Package, Globe, Lock, EyeOff } from 'lucide-react'
 
-export default async function NewProductPage() {
+export default async function NewProductPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>
+}) {
+  const profile = await requireStaff(['admin', 'sales'])
+  const { error } = await searchParams
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const [{ data: categories }, { data: brands }, { data: suppliers }, { data: companies }] = await Promise.all([
     supabase.from('categories').select('id, name').order('name'),
@@ -19,13 +24,16 @@ export default async function NewProductPage() {
 
   const handleCreate = async (formData: FormData) => {
     'use server'
-    await createProduct(formData)
+    const result = await createProduct(formData)
+    if (result && typeof result === 'object' && 'error' in result && result.error) {
+      redirect(`/crm/products/new?error=${encodeURIComponent(result.error)}`)
+    }
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <BackButton href="/crm/products" label="Back to Products" />
-      
+
       <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm">
         <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
           <div className="p-3 bg-[#4A235A]/10 text-[#4A235A] rounded-xl">
@@ -36,6 +44,12 @@ export default async function NewProductPage() {
             <p className="text-xs text-gray-500">Add a new gifting item or custom product to the GIFFTER catalogue.</p>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {error}
+          </div>
+        )}
 
         <form action={handleCreate} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -123,6 +137,16 @@ export default async function NewProductPage() {
             </div>
 
             <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Internal margin (?)</label>
+              <input
+                type="number"
+                name="internal_margin"
+                step="0.01"
+                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-[#4A235A] focus:outline-none"
+              />
+            </div>
+
+            <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1.5">Primary Supplier</label>
               <select
                 name="supplier_id"
@@ -134,6 +158,26 @@ export default async function NewProductPage() {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">HSN code</label>
+              <input
+                type="text"
+                name="hsn_code"
+                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-[#4A235A] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Product photo</label>
+            <input
+              type="file"
+              name="image"
+              accept="image/png,image/jpeg,image/webp"
+              className="text-xs file:mr-2 file:px-3 file:py-1.5 file:rounded-md file:border file:border-gray-200 file:bg-white file:text-xs"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">PNG, JPG or WebP · max 5 MB. Stored in the existing product-images bucket.</p>
           </div>
 
           <div>
@@ -156,7 +200,26 @@ export default async function NewProductPage() {
             />
           </div>
 
-          {/* CATALOGUE VISIBILITY & COMPANY ACCESS SECTION */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Colour</label>
+              <input name="colour" className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Size</label>
+              <input name="size" className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Gender</label>
+              <input name="gender" className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Material</label>
+              <input name="material" className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg" />
+            </div>
+          </div>
+
+          {profile.role === 'admin' && (
           <div className="border border-purple-100 bg-purple-50/30 p-5 rounded-xl space-y-4">
             <div>
               <h3 className="text-sm font-bold text-gray-900">Catalogue Access & Company Visibility</h3>
@@ -241,6 +304,7 @@ export default async function NewProductPage() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
             <Link

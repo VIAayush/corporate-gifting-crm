@@ -20,13 +20,14 @@ export async function getProfile(): Promise<ProfileSession | null> {
     .from("profiles")
     .select("id, full_name, email, role, department_id, company_id, is_active")
     .eq("id", user.id)
-    .single()
+    .maybeSingle()
   return data as ProfileSession | null
 }
 
 export async function requireStaff(roles?: Role[]): Promise<ProfileSession> {
   const profile = await getProfile()
   if (!profile) redirect("/login")
+  if (!profile.is_active) redirect("/login")
   if (profile.role === "client_admin" || (profile.role as string) === "client_user") {
     redirect("/portal/catalogue")
   }

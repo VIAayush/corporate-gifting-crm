@@ -1,9 +1,12 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
 
+export const dynamic = "force-dynamic"
+
 export const metadata: Metadata = {
-  title: "GIFFTER — Corporate Gifting Platform",
-  description: "GIFFTER corporate gifting CRM from enquiry through fulfilment, invoicing, and payment.",
+  title: "GIFFTER — Corporate Gifting CRM",
+  description: "Sign in to GIFFTER, the corporate gifting CRM.",
+  applicationName: "GIFFTER",
 }
 
 export default function LoginLayout({ children }: { children: ReactNode }) {

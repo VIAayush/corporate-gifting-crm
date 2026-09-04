@@ -5,6 +5,7 @@ import { formatCurrency, formatDate, asRows, oneRelation } from '@/lib/utils'
 import { FolderGit2, Building2 } from 'lucide-react'
 import { createCampaign } from './actions'
 import { asFormAction } from '@/lib/form-action'
+import { requireStaff } from '@/lib/auth'
 
 type CampaignCompany = { name: string | null }
 type CampaignRow = {
@@ -19,6 +20,7 @@ type CampaignRow = {
 }
 
 export default async function CampaignsPage() {
+  await requireStaff(['admin', 'sales', 'management'])
   const supabase = await createClient()
   const [{ data: campaigns }, { data: companies }] = await Promise.all([
     supabase.from('campaigns').select('*, company:companies(name)').order('created_at', { ascending: false }),

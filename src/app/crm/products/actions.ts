@@ -10,6 +10,20 @@ const CATALOGUE_ROLES = ['admin', 'sales'] as const
 const VISIBILITY_ROLES = ['admin'] as const
 type CatalogueRole = (typeof CATALOGUE_ROLES)[number]
 
+const IMAGE_BUCKET = 'product-images'
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+}
+
+function publicImageUrl(objectPath: string) {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!base) return objectPath
+  return `${base.replace(/\/$/, '')}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath.replace(/^\/+/, '')}`
+}
+
 export async function createProduct(formData: FormData) {
   const profile = await getProfile()
   if (!profile) return { error: 'Not authenticated' }
@@ -29,13 +43,24 @@ export async function createProduct(formData: FormData) {
   const internal_margin = formData.get('internal_margin') ? parseFloat(formData.get('internal_margin') as string) : null
   const moq = parseInt(formData.get('moq') as string, 10) || 1
   const image_url = (formData.get('image_url') as string) || null
+  const hsn_code = ((formData.get('hsn_code') as string) || '').trim() || null
   const status = (formData.get('status') as string) || 'active'
   const catalogue_access =
     profile.role === 'admin' ? ((formData.get('catalogue_access') as string) || 'all') : 'all'
-  const selectedCompanies = profile.role === 'admin' ? (formData.getAll('company_ids') as string[]) : []
+  const selectedCompanies = [
+    ...new Set(
+      (profile.role === 'admin' ? (formData.getAll('company_ids') as string[]) : []).filter(Boolean)
+    ),
+  ]
 
   if (!name || !sku) {
     return { error: 'Product name and SKU are required' }
+  }
+  if (!['all', 'selected', 'none'].includes(catalogue_access)) {
+    return { error: 'Invalid catalogue visibility' }
+  }
+  if (catalogue_access === 'selected' && selectedCompanies.length === 0) {
+    return { error: 'Select at least one company for personalized catalogue access.' }
   }
 
   const { data: product, error } = await supabase
@@ -52,6 +77,7 @@ export async function createProduct(formData: FormData) {
       internal_margin,
       moq,
       image_url,
+      hsn_code,
       status,
       catalogue_access,
       visibility: catalogue_access === 'all' ? 'catalogue' : (catalogue_access === 'selected' ? 'selected_companies' : 'internal_only'),
@@ -64,16 +90,54 @@ export async function createProduct(formData: FormData) {
     return { error: error.message }
   }
 
-  if (catalogue_access === 'selected' && selectedCompanies.length > 0) {
-    const accessRows = selectedCompanies.map(cId => ({
+  if (catalogue_access === 'selected') {
+    const accessRows = selectedCompanies.map((cId) => ({
       product_id: product.id,
       company_id: cId,
     }))
-    await supabase.from('company_product_access').insert(accessRows)
+    const { error: accessError } = await supabase.from('company_product_access').insert(accessRows)
+    if (accessError) {
+      await supabase.from('products').delete().eq('id', product.id)
+      return { error: `Product was not saved because company visibility could not be stored: ${accessError.message}` }
+    }
+  }
+
+  const imageFile = formData.get('image')
+  if (imageFile instanceof File && imageFile.size > 0) {
+    const extension = ALLOWED_IMAGE_TYPES[imageFile.type]
+    if (extension && imageFile.size <= MAX_IMAGE_BYTES) {
+      const objectPath = `${product.id}/${Date.now()}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(objectPath, imageFile, { contentType: imageFile.type, upsert: false })
+      if (!uploadError) {
+        await supabase
+          .from('products')
+          .update({ image_url: publicImageUrl(objectPath) })
+          .eq('id', product.id)
+      }
+    }
+  }
+
+  const colour = ((formData.get('colour') as string) || '').trim() || null
+  const size = ((formData.get('size') as string) || '').trim() || null
+  const gender = ((formData.get('gender') as string) || '').trim() || null
+  const material = ((formData.get('material') as string) || '').trim() || null
+  if (colour || size || gender || material) {
+    await supabase.from('product_variants').insert({
+      product_id: product.id,
+      colour,
+      size,
+      gender,
+      material,
+      sku: ((formData.get('variant_sku') as string) || '').trim().toUpperCase() || null,
+      extra_price: parseFloat(String(formData.get('extra_price') || '0')) || 0,
+    })
   }
 
   revalidatePath('/crm/products')
   revalidatePath('/portal/catalogue')
+  selectedCompanies.forEach((companyId) => revalidatePath('/crm/companies/' + companyId))
   redirect('/crm/products/' + product.id)
 }
 
@@ -164,20 +228,6 @@ export async function updateProduct(productId: string, formData: FormData) {
   revalidatePath('/crm/products')
   revalidatePath('/portal/catalogue')
   return { success: true }
-}
-
-const IMAGE_BUCKET = 'product-images'
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-const ALLOWED_IMAGE_TYPES: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-}
-
-function publicImageUrl(objectPath: string) {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!base) return objectPath
-  return `${base.replace(/\/$/, '')}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath.replace(/^\/+/, '')}`
 }
 
 function isStoredProductImage(url: string | null | undefined) {
@@ -337,16 +387,26 @@ export async function grantCompanyProductAccess(productId: string, companyId: st
   const supabase = await createClient()
   if (!companyId) return { error: 'Please select a company' }
 
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, catalogue_access')
+    .eq('id', productId)
+    .maybeSingle()
+  if (!product) return { error: 'Product not found' }
+
   const { error: insertError } = await supabase
     .from('company_product_access')
     .upsert({ product_id: productId, company_id: companyId }, { onConflict: 'company_id,product_id' })
 
   if (insertError) return { error: insertError.message }
 
-  await supabase
-    .from('products')
-    .update({ catalogue_access: 'selected', visibility: 'selected_companies' })
-    .eq('id', productId)
+  if (product.catalogue_access !== 'all') {
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ catalogue_access: 'selected', visibility: 'selected_companies' })
+      .eq('id', productId)
+    if (updateError) return { error: updateError.message }
+  }
 
   revalidatePath('/crm/products/' + productId)
   revalidatePath('/crm/companies/' + companyId)
@@ -370,6 +430,24 @@ export async function revokeCompanyProductAccess(productId: string, companyId: s
     .eq('company_id', companyId)
 
   if (error) return { error: error.message }
+
+  const { data: remaining } = await supabase
+    .from('company_product_access')
+    .select('company_id')
+    .eq('product_id', productId)
+  if (!remaining?.length) {
+    const { data: product } = await supabase
+      .from('products')
+      .select('catalogue_access')
+      .eq('id', productId)
+      .maybeSingle()
+    if (product?.catalogue_access === 'selected') {
+      await supabase
+        .from('products')
+        .update({ catalogue_access: 'none', visibility: 'internal_only' })
+        .eq('id', productId)
+    }
+  }
 
   revalidatePath('/crm/products/' + productId)
   revalidatePath('/crm/companies/' + companyId)

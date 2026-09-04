@@ -9,7 +9,7 @@ export default async function PortalOrdersPage() {
 
   const { data: orders } = await supabase
     .from('orders')
-    .select('id, order_number, created_at, expected_delivery_date, order_value, status, campaign:campaign_id(name, employee_quantity)')
+    .select('id, order_number, created_at, expected_delivery_date, order_value, status, tracking_number, campaign:campaign_id(name, employee_quantity)')
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
@@ -37,6 +37,9 @@ export default async function PortalOrdersPage() {
                   <p className="font-semibold">{formatCurrency(order.order_value)}</p>
                   <p className="text-xs text-gray-500">Expected {formatDate(order.expected_delivery_date)}</p>
                   <p className="text-xs font-medium text-[#1A3022] mt-1">{CLIENT_STATUS_LABELS[order.status] || order.status}</p>
+                  {order.tracking_number && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">AWB {order.tracking_number}</p>
+                  )}
                 </div>
               </div>
             </Link>

@@ -42,6 +42,13 @@ const nextConfig: NextConfig = {
       { source: '/order-management', destination: '/crm/order-management' },
       { source: '/order-control-center', destination: '/crm/order-management' },
       { source: '/payables', destination: '/crm/payables' },
+      { source: '/crm/my-team', destination: '/crm/team' },
+      { source: '/crm/knowledge-center', destination: '/crm/knowledge' },
+      { source: '/crm/learn-giffter', destination: '/crm/knowledge' },
+      { source: '/crm/gst-reports', destination: '/crm/reports?tab=gst' },
+      { source: '/crm/payment-receivables', destination: '/crm/receivables' },
+      { source: '/crm/payments-payable', destination: '/crm/payables' },
+      { source: '/crm/manual-payment', destination: '/crm/payments' },
     ];
   },
 };

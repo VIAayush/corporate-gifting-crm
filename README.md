@@ -20,6 +20,9 @@ Open http://localhost:3000
 
 ## Demo users
 
+Seeded Auth users (developer reference only — not shown on the production login screen).
+The `*@oaklane.demo` addresses are real Supabase identities and must not be renamed.
+
 Password for all demo users: `Oaklane-Demo-2026!`
 
 - `admin@oaklane.demo` — Admin

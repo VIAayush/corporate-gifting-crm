@@ -12,7 +12,8 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "GIFFTER — Corporate Gifting CRM",
-  description: "B2B corporate gifting CRM/ERP from first enquiry through fulfilment, invoicing, and payment.",
+  description: "B2B corporate gifting CRM from first enquiry through fulfilment, invoicing, and payment.",
+  applicationName: "GIFFTER",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

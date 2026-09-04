@@ -1,16 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
 import { updateLeadStage } from '../actions'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
 import { TrendingUp, Building2, User, Calendar, DollarSign } from 'lucide-react'
+import { requireStaff } from '@/lib/auth'
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  await requireStaff(['admin', 'sales', 'management'])
+  if (!isUuid(id)) notFound()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const { data: lead } = await supabase
     .from('leads')
@@ -20,6 +21,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
 
   if (!lead) notFound()
 
+  const company = oneRelation(lead.company)
+  const contact = oneRelation(lead.contact)
+  const owner = oneRelation(lead.owner)
   const stages = ['cold', 'warm', 'hot', 'client', 'regular_client']
   const currentIndex = stages.indexOf(lead.stage)
 
@@ -42,10 +46,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Corporate Lead</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {(lead.company as any)?.name || 'Lead Details'}
+            {(company?.name || 'Lead Details')}
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Account Executive: <span className="font-semibold text-gray-800">{(lead.owner as any)?.full_name || 'Unassigned'}</span>
+            Account Executive: <span className="font-semibold text-gray-800">{owner?.full_name || 'Unassigned'}</span>
           </p>
         </div>
 
@@ -109,9 +113,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <h2 className="font-bold text-sm text-gray-900 pb-2 border-b border-gray-100 flex items-center gap-2">
             <Building2 size={16} className="text-[#4A235A]" /> Company Details
           </h2>
-          <div><span className="font-semibold text-gray-500 w-24 inline-block">Company:</span> <Link href={`/crm/companies/${(lead.company as any)?.id}`} className="text-[#4A235A] hover:underline font-bold">{(lead.company as any)?.name}</Link></div>
-          <div><span className="font-semibold text-gray-500 w-24 inline-block">Industry:</span> {(lead.company as any)?.industry || '?'}</div>
-          <div><span className="font-semibold text-gray-500 w-24 inline-block">Location:</span> {[(lead.company as any)?.city, (lead.company as any)?.state].filter(Boolean).join(', ') || '?'}</div>
+          <div><span className="font-semibold text-gray-500 w-24 inline-block">Company:</span> {company?.id ? <Link href={`/crm/companies/${company.id}`} className="text-[#4A235A] hover:underline font-bold">{company.name}</Link> : '—'}</div>
+          <div><span className="font-semibold text-gray-500 w-24 inline-block">Industry:</span> {company?.industry || '?'}</div>
+          <div><span className="font-semibold text-gray-500 w-24 inline-block">Location:</span> {[company?.city, company?.state].filter(Boolean).join(', ') || '?'}</div>
           <div><span className="font-semibold text-gray-500 w-24 inline-block">Source:</span> {lead.source || 'Direct Outreach'}</div>
           <div><span className="font-semibold text-gray-500 w-24 inline-block">Next Follow-up:</span> {formatDate(lead.next_follow_up_at)}</div>
         </div>
@@ -120,12 +124,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <h2 className="font-bold text-sm text-gray-900 pb-2 border-b border-gray-100 flex items-center gap-2">
             <User size={16} className="text-[#4A235A]" /> Primary Contact
           </h2>
-          {lead.contact ? (
+          {contact ? (
             <>
-              <div><span className="font-semibold text-gray-500 w-24 inline-block">Name:</span> <span className="font-bold text-gray-900">{(lead.contact as any).full_name}</span></div>
-              <div><span className="font-semibold text-gray-500 w-24 inline-block">Designation:</span> {(lead.contact as any).designation || '?'}</div>
-              <div><span className="font-semibold text-gray-500 w-24 inline-block">Email:</span> {(lead.contact as any).email || '?'}</div>
-              <div><span className="font-semibold text-gray-500 w-24 inline-block">Phone:</span> {(lead.contact as any).phone || '?'}</div>
+              <div><span className="font-semibold text-gray-500 w-24 inline-block">Name:</span> <span className="font-bold text-gray-900">{contact.full_name}</span></div>
+              <div><span className="font-semibold text-gray-500 w-24 inline-block">Designation:</span> {contact.designation || '?'}</div>
+              <div><span className="font-semibold text-gray-500 w-24 inline-block">Email:</span> {contact.email || '?'}</div>
+              <div><span className="font-semibold text-gray-500 w-24 inline-block">Phone:</span> {contact.phone || '?'}</div>
             </>
           ) : (
             <p className="text-gray-400 italic">No specific contact assigned.</p>

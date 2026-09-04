@@ -12,8 +12,8 @@ export default function CrmError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('CRM page error:', error);
-  }, [error]);
+    console.error('CRM page error:', error.message, error.digest, error.stack)
+  }, [error])
 
   return (
     <div className="p-6">

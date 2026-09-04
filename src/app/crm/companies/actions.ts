@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { getProfile } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const LOGO_BUCKET = 'company-logos'
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
@@ -187,5 +188,78 @@ export async function removeCompanyLogo(formData: FormData) {
 
   revalidatePath(`/crm/companies/${companyId}`)
   revalidatePath('/crm/companies')
+  return { success: true }
+}
+
+export async function createPortalClient(formData: FormData) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (profile.role !== 'admin') return { error: 'Only an admin can create client logins' }
+
+  const companyId = String(formData.get('company_id') || '')
+  const email = String(formData.get('email') || '').trim().toLowerCase()
+  const fullName = String(formData.get('full_name') || '').trim()
+  const role = String(formData.get('role') || 'client_user')
+  const password = String(formData.get('password') || '')
+
+  if (!companyId || !email || !fullName) {
+    return { error: 'Name, email and company are required' }
+  }
+  if (role !== 'client_admin' && role !== 'client_user') {
+    return { error: 'Invalid portal role' }
+  }
+  if (password.length < 8) {
+    return { error: 'Password must be at least 8 characters' }
+  }
+
+  const supabase = await createClient()
+  const { data: company } = await supabase.from('companies').select('id, name').eq('id', companyId).maybeSingle()
+  if (!company) return { error: 'Company not found' }
+
+  const admin = createAdminClient()
+  if (!admin) {
+    return {
+      error: 'Client login cannot be created until SUPABASE_SERVICE_ROLE_KEY is configured on the server.',
+    }
+  }
+
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: fullName,
+      role,
+      company_id: companyId,
+    },
+  })
+  if (error || !created.user) {
+    return { error: error?.message || 'Could not create the client login' }
+  }
+
+  const { error: profileError } = await admin
+    .from('profiles')
+    .update({
+      full_name: fullName,
+      email,
+      role,
+      company_id: companyId,
+      is_active: true,
+    })
+    .eq('id', created.user.id)
+  if (profileError) {
+    return { error: `Login was created but the company assignment failed: ${profileError.message}` }
+  }
+
+  await writeAudit(supabase, {
+    action: 'create',
+    entity: 'profiles',
+    entityId: created.user.id,
+    next: { email, role, company_id: companyId },
+    userId: profile.id,
+  })
+
+  revalidatePath(`/crm/companies/${companyId}`)
+  revalidatePath('/crm/team')
   return { success: true }
 }

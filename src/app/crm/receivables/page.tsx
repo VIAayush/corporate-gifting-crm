@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
 import Link from 'next/link'
 import { requireStaff } from '@/lib/auth'
 
@@ -52,25 +52,28 @@ export default async function ReceivablesPage() {
             </tr>
           </thead>
           <tbody>
-            {invoices?.map(invoice => (
+            {invoices?.map(invoice => {
+              const company = oneRelation(invoice.companies)
+              return (
               <tr key={invoice.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
-                <td className="p-3 text-sm font-medium">{invoice.companies?.name}</td>
+                <td className="p-3 text-sm font-medium">{company?.name}</td>
                 <td className="p-3 text-sm">
                   <Link href={`/crm/invoices/${invoice.id}`} className="text-blue-600 hover:underline">{invoice.invoice_number}</Link>
                 </td>
                 <td className="p-3 text-sm">{formatCurrency(invoice.amount)}</td>
-                <td className={`p-3 text-sm ${new Date(invoice.due_date) < new Date() ? 'text-red-600 font-semibold' : ''}`}>
+                <td className={`p-3 text-sm ${invoice.due_date && new Date(invoice.due_date) < new Date() ? 'text-red-600 font-semibold' : ''}`}>
                   {formatDate(invoice.due_date)}
                 </td>
                 <td className="p-3 text-sm">
                   <span className={`px-2 py-1 rounded text-xs font-medium ${
                     invoice.status === 'partially_paid' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
                   }`}>
-                    {invoice.status.replace('_', ' ')}
+                    {String(invoice.status || '').replace('_', ' ')}
                   </span>
                 </td>
               </tr>
-            ))}
+              )
+            })}
             {(!invoices || invoices.length === 0) && (
               <tr>
                 <td colSpan={5} className="p-4 text-center text-[var(--color-text-secondary)]">No open receivables.</td>

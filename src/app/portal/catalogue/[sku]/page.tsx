@@ -17,7 +17,7 @@ export default async function CampaignOfferingDetailPage({ params }: { params: P
     .select('id, display_name, client_description, client_image_url, selling_price, moq, campaign_id, personalization_options, estimated_delivery, campaign:campaigns(id, name)')
     .eq('id', sku)
     .eq('visibility', 'published')
-    .single()
+    .maybeSingle()
 
   if (!offering) notFound()
 

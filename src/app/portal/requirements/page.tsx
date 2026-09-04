@@ -29,7 +29,7 @@ export default async function PortalRequirementsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {requirements?.length === 0 ? (
+        {(!requirements || requirements.length === 0) ? (
           <div className="p-8 text-center text-gray-500">
             No requirements found. Create one to get started.
           </div>
@@ -60,16 +60,20 @@ export default async function PortalRequirementsPage() {
                         req.status === 'fulfilled' ? 'bg-green-100 text-green-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {req.status.replace('_', ' ').toUpperCase()}
+                        {String(req.status || '').replace('_', ' ').toUpperCase() || '—'}
                       </span>
                     </td>
                     <td className="px-6 py-4">${Number(req.budget_per_unit || 0).toFixed(2)}</td>
                     <td className="px-6 py-4">{req.quantity}</td>
                     <td className="px-6 py-4">
-                      {req.deadline ? format(new Date(req.deadline), 'MMM dd, yyyy') : '-'}
+                      {req.deadline && !Number.isNaN(new Date(req.deadline).getTime())
+                        ? format(new Date(req.deadline), 'MMM dd, yyyy')
+                        : '-'}
                     </td>
                     <td className="px-6 py-4">
-                      {format(new Date(req.created_at), 'MMM dd, yyyy')}
+                      {req.created_at && !Number.isNaN(new Date(req.created_at).getTime())
+                        ? format(new Date(req.created_at), 'MMM dd, yyyy')
+                        : '-'}
                     </td>
                   </tr>
                 ))}

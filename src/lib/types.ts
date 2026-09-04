@@ -146,12 +146,12 @@ export interface Brand {
 export interface Supplier {
   id: string
   name: string
-  contact_name: string | null
+  contact_person: string | null
   phone: string | null
   email: string | null
   city: string | null
-  categories: string[] | null
-  credit_days: number | null
+  category: string | null
+  credit_period_days: number | null
   credit_limit: number | null
   notes: string | null
   is_active: boolean
@@ -161,10 +161,10 @@ export interface Supplier {
 export interface PrintingVendor {
   id: string
   name: string
-  contact_name: string | null
+  contact_person: string | null
   phone: string | null
   city: string | null
-  printing_methods: string[] | null
+  service_type: string | null
   notes: string | null
   is_active: boolean
   created_at: string
@@ -173,10 +173,10 @@ export interface PrintingVendor {
 export interface CourierPartner {
   id: string
   name: string
-  contact_name: string | null
+  contact_person: string | null
   phone: string | null
   city: string | null
-  tracking_url: string | null
+  tracking_supported: boolean | null
   notes: string | null
   is_active: boolean
   created_at: string

@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate, formatDateTime, oneRelation } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime, isUuid, oneRelation } from '@/lib/utils'
 import {
   advanceOrderStatus,
   assignSupplier,
@@ -32,6 +32,7 @@ export default async function OrderDetailPage({
   searchParams: Promise<{ tab?: string }>
 }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const { tab = 'details' } = await searchParams
   const profile = await getProfile()
   if (!profile) return redirect('/login')

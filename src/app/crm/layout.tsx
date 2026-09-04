@@ -16,9 +16,14 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     .from('profiles')
     .select('id, full_name, email, role, is_active, department_id')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
   if (!profile) {
+    redirect('/login');
+  }
+
+  if (!profile.is_active) {
+    await supabase.auth.signOut();
     redirect('/login');
   }
 
@@ -26,7 +31,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     redirect('/portal/catalogue');
   }
 
-  const displayName = profile.full_name || user.email?.split('@')[0] || 'Team';
+  const displayName = profile.full_name || user.email?.split('@')[0] || 'User';
 
   const { data: notifications } = await supabase
     .from('notifications')

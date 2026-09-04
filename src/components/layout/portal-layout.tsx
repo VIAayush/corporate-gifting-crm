@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, LogOut, PackageSearch, Heart, FileText, ShoppingBag, LayoutDashboard, FolderGit2, Files } from 'lucide-react';
+import { Menu, X, LogOut, PackageSearch, Heart, FileText, ShoppingBag, LayoutDashboard, FolderGit2, Files, ClipboardList } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import { CompanyAvatar } from '../ui/avatar';
 
@@ -21,6 +21,7 @@ const navItems = [
   { label: 'Campaigns', href: '/portal/campaigns', icon: FolderGit2 },
   { label: 'Products', href: '/portal/catalogue', icon: PackageSearch },
   { label: 'Shortlist', href: '/portal/shortlist', icon: Heart },
+  { label: 'Requirements', href: '/portal/requirements', icon: ClipboardList },
   { label: 'Quotations', href: '/portal/quotations', icon: FileText },
   { label: 'Orders', href: '/portal/orders', icon: ShoppingBag },
   { label: 'Documents', href: '/portal/documents', icon: Files },

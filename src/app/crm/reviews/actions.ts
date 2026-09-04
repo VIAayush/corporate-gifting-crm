@@ -5,6 +5,11 @@ import { revalidatePath } from 'next/cache'
 
 export async function createReview(formData: FormData) {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Not authenticated' }
+  const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+  if (me?.role !== 'admin' && me?.role !== 'management') return { error: 'Not authorised' }
+
   const companyId = String(formData.get('company_id') || '')
   const rating = Number(formData.get('rating') || 0)
   if (!companyId || rating < 1 || rating > 5) return { error: 'Company and rating are required' }

@@ -1,15 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound, redirect } from 'next/navigation'
-import { formatCurrency } from '@/lib/utils'
+import { notFound } from 'next/navigation'
+import { formatCurrency, isUuid } from '@/lib/utils'
 import { addCampaignProduct, setCampaignProductVisibility, removeCampaignProduct } from '../actions'
 import { BackButton } from '@/components/ui/back-button'
 import { asFormAction } from '@/lib/form-action'
+import { requireStaff } from '@/lib/auth'
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
+  await requireStaff(['admin', 'sales', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const [{ data: campaign }, { data: offerings }, { data: products }, { data: selections }] = await Promise.all([
     supabase.from('campaigns').select('*, company:companies(id, name)').eq('id', id).maybeSingle(),

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, isUuid } from '@/lib/utils'
 import { notFound } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
 import { updateProduct } from '../actions'
@@ -12,6 +12,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const profile = await requireStaff(['admin', 'sales', 'management', 'operations'])
   const showCost = canSeeCosts(profile.role)
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const supabase = await createClient()
 
   const [

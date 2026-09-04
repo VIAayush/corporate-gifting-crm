@@ -1,13 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
 import { ORDER_LIFECYCLE, CLIENT_STATUS_LABELS, lifecycleIndex } from '@/lib/order-workflow'
 import { Truck } from 'lucide-react'
 import { ProductImage } from '@/components/ui/product-image'
 
 export default async function PortalOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return redirect('/login')
@@ -17,13 +18,14 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
   const { data: order } = await supabase
     .from('orders')
     .select(`
-      id, order_number, status, order_value, expected_delivery_date, created_at, tracking_number, company_id, campaign_id,
+      id, order_number, status, order_value, expected_delivery_date, created_at, tracking_number, company_id, campaign_id, quotation_id,
       campaign:campaign_id(name, employee_quantity),
-      courier_partner:courier_partners(name, tracking_url),
+      courier_partner:courier_partners(name),
+      quotation:quotations(quotation_number, total),
       items:order_items(id, quantity, unit_price, line_total, product:products(name, sku, image_url))
     `)
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
   if (!order || order.company_id !== companyId) {
     notFound()
@@ -32,6 +34,7 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
   const currentStageIndex = lifecycleIndex(order.status)
   const campaign = oneRelation(order.campaign)
   const courier = oneRelation(order.courier_partner)
+  const quotation = oneRelation(order.quotation)
   const items = (order.items ?? []).map((item) => ({
     id: item.id,
     quantity: item.quantity,
@@ -57,6 +60,12 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
             <p className="text-sm mt-2 font-medium text-[#1A3022]">
               Current status: {CLIENT_STATUS_LABELS[order.status] || order.status}
             </p>
+            {quotation?.quotation_number && (
+              <p className="text-xs text-gray-500 mt-1">
+                Quotation {quotation.quotation_number}
+                {quotation.total != null ? ` · ${formatCurrency(quotation.total)}` : ''}
+              </p>
+            )}
           </div>
           <div className="sm:text-right">
             <p className="text-[10px] uppercase font-bold text-gray-400">Order value</p>

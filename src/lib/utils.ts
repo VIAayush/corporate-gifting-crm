@@ -16,22 +16,26 @@ export function formatCurrency(amount: number | null | undefined, currency = "IN
 
 export function formatDate(date: string | null | undefined) {
   if (!date) return "—"
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return "—"
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(date))
+  }).format(parsed)
 }
 
 export function formatDateTime(date: string | null | undefined) {
   if (!date) return "—"
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return "—"
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(date))
+  }).format(parsed)
 }
 
 export function getInitials(name: string | null | undefined) {
@@ -106,6 +110,11 @@ export function oneRelation<T>(value: T | T[] | null | undefined): T | null {
 /** Coerce an untyped query result into a typed row array. */
 export function asRows<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : []
+}
+
+export function isUuid(value: string | null | undefined): boolean {
+  if (!value) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
 
 export const INVOICE_STATUS_LABELS: Record<string, string> = {

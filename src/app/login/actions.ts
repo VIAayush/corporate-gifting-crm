@@ -28,7 +28,7 @@ export async function signIn(formData: FormData): Promise<{ error?: string } | u
       .from('profiles')
       .select('role')
       .eq('id', data.user.id)
-      .single()
+      .maybeSingle()
 
     const home = landingPathForRole(profile?.role)
     if (isSafeNext(next)) {

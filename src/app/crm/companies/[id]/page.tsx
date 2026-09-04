@@ -6,10 +6,14 @@ import { CompanyAvatar } from '@/components/ui/avatar'
 import { ProductImage } from '@/components/ui/product-image'
 import { Breadcrumbs } from '@/components/ui/breadcrumbs'
 import { uploadCompanyLogo, removeCompanyLogo } from '../actions'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import { Plus, Package, Trash2, Globe, Lock, Users, TrendingUp, ClipboardList, ShoppingBag } from 'lucide-react'
+import { formatCurrency, formatDate, isUuid } from '@/lib/utils'
+import { Plus, Trash2 } from 'lucide-react'
 import { grantCompanyProductAccess, revokeCompanyProductAccess } from '@/app/crm/products/actions'
 import { requireStaff } from '@/lib/auth'
+import { createContact } from '@/app/crm/contacts/actions'
+import { asFormAction } from '@/lib/form-action'
+import { PortalClientForm } from '../portal-client-form'
+import { CLIENT_STATUS_LABELS, ORDER_LIFECYCLE, lifecycleIndex } from '@/lib/order-workflow'
 
 export default async function CompanyDetailPage({
   params,
@@ -20,6 +24,7 @@ export default async function CompanyDetailPage({
 }) {
   const profile = await requireStaff()
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const { tab = 'overview' } = await searchParams
   const canManageVisibility = profile.role === 'admin'
 
@@ -34,7 +39,10 @@ export default async function CompanyDetailPage({
     { data: orders },
     { data: invoices },
     { data: companyProducts },
-    { data: allProducts }
+    { data: allProducts },
+    { data: clients },
+    { data: companyTasks },
+    { count: globalProductCount },
   ] = await Promise.all([
     supabase.from('companies').select('*, owner:profiles!companies_owner_id_fkey(id, full_name, email)').eq('id', id).maybeSingle(),
     supabase.from('contacts').select('*').eq('company_id', id).order('full_name'),
@@ -44,7 +52,10 @@ export default async function CompanyDetailPage({
     supabase.from('orders').select('*').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('invoices').select('id, invoice_number, amount, status, created_at').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('company_product_access').select('*, product:products(*)').eq('company_id', id),
-    supabase.from('products').select('id, name, sku, price').eq('status', 'active').order('name')
+    supabase.from('products').select('id, name, sku, price').eq('status', 'active').order('name'),
+    supabase.from('profiles').select('id, full_name, email, role, is_active').eq('company_id', id).in('role', ['client_admin', 'client_user']).order('full_name'),
+    supabase.from('tasks').select('id, title, status, due_at, assigned_to, order_id, priority, assignee:profiles!assigned_to(full_name)').eq('company_id', id).order('due_at', { ascending: true }),
+    supabase.from('products').select('id', { count: 'exact', head: true }).eq('status', 'active').eq('catalogue_access', 'all'),
   ])
 
   if (!company) notFound()
@@ -76,12 +87,14 @@ export default async function CompanyDetailPage({
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
-    { id: 'catalogue', label: `Personalized Catalogue (${companyProducts?.length || 0})` },
+    { id: 'clients', label: `Clients (${clients?.length || 0})` },
+    { id: 'catalogue', label: `Catalogue (${companyProducts?.length || 0})` },
     { id: 'contacts', label: `Contacts (${contacts?.length || 0})` },
     { id: 'leads', label: `Leads (${leads?.length || 0})` },
     { id: 'requirements', label: `Requirements (${requirements?.length || 0})` },
     { id: 'quotations', label: `Quotations (${quotations?.length || 0})` },
     { id: 'orders', label: `Orders (${orders?.length || 0})` },
+    { id: 'tracking', label: 'Tracking' },
     { id: 'invoices', label: `Invoices (${invoices?.length || 0})` },
   ]
 
@@ -183,9 +196,9 @@ export default async function CompanyDetailPage({
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h2 className="font-bold text-sm text-gray-900">Personalized Products for {company.name}</h2>
+              <h2 className="font-bold text-sm text-gray-900">Catalogue for {company.name}</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                These products appear exclusively in {company.name}&apos;s Client Portal in addition to the standard catalogue.
+                Portal users at this company see all global catalogue products ({globalProductCount || 0}) plus the personalized products listed below. Removing a company here hides a selected product from their portal.
               </p>
             </div>
 
@@ -272,7 +285,61 @@ export default async function CompanyDetailPage({
         </div>
       )}
 
+      {tab === 'clients' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-4">
+            <div>
+              <h2 className="font-bold text-sm text-gray-900">Portal clients</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Each login is a Supabase Auth user assigned to this company. Passwords are never stored in CRM tables.
+              </p>
+            </div>
+            {profile.role === 'admin' && <PortalClientForm companyId={company.id} />}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Name</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Email</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Role</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {clients?.map((client) => (
+                  <tr key={client.id}>
+                    <td className="px-4 py-2.5 font-medium">{client.full_name}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{client.email}</td>
+                    <td className="px-4 py-2.5 capitalize">{String(client.role).replace('_', ' ')}</td>
+                    <td className="px-4 py-2.5">{client.is_active ? 'Active' : 'Inactive'}</td>
+                  </tr>
+                ))}
+                {(!clients || clients.length === 0) && (
+                  <tr><td colSpan={4} className="p-6 text-center text-gray-400">No portal clients for this company yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {tab === 'contacts' && (
+        <div className="space-y-4">
+          <form action={asFormAction(createContact)} className="bg-white p-4 rounded-xl border border-gray-200 grid md:grid-cols-3 gap-3 text-xs">
+            <input type="hidden" name="company_id" value={company.id} />
+            <input name="full_name" required placeholder="Full name" className="border rounded-lg px-3 py-2" />
+            <input name="designation" placeholder="Designation" className="border rounded-lg px-3 py-2" />
+            <input name="email" type="email" placeholder="Email" className="border rounded-lg px-3 py-2" />
+            <input name="phone" placeholder="Phone" className="border rounded-lg px-3 py-2" />
+            <select name="contact_type" className="border rounded-lg px-3 py-2 bg-white">
+              <option value="primary">Primary</option>
+              <option value="billing">Billing</option>
+              <option value="procurement">Procurement</option>
+              <option value="other">Other</option>
+            </select>
+            <button className="bg-[#1A3022] text-white rounded-lg font-semibold py-2">Add contact</button>
+          </form>
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -297,6 +364,7 @@ export default async function CompanyDetailPage({
               )}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
@@ -417,6 +485,78 @@ export default async function CompanyDetailPage({
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === 'tracking' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-bold text-sm text-gray-900">Order tracking</h2>
+              <p className="text-[11px] text-gray-500">Live statuses from the existing order workflow. No simulated tracking.</p>
+            </div>
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Order</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Progress</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Delivery</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {orders?.map((order) => {
+                  const idx = lifecycleIndex(order.status)
+                  return (
+                    <tr key={order.id}>
+                      <td className="px-4 py-2.5 font-semibold text-[#4A235A]">
+                        <Link href={`/crm/orders/${order.id}`}>{order.order_number}</Link>
+                      </td>
+                      <td className="px-4 py-2.5">{CLIENT_STATUS_LABELS[order.status] || order.status}</td>
+                      <td className="px-4 py-2.5 text-gray-500">
+                        {ORDER_LIFECYCLE.map((stage, i) => (i <= idx ? '●' : '○')).join(' ')}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500">{formatDate(order.expected_delivery_date)}</td>
+                    </tr>
+                  )
+                })}
+                {(!orders || orders.length === 0) && (
+                  <tr><td colSpan={4} className="p-6 text-center text-gray-400">No orders to track yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-bold text-sm text-gray-900">Assigned work</h2>
+            </div>
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Task</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Assignee</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Due</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {companyTasks?.map((task) => {
+                  const assignee = Array.isArray(task.assignee) ? task.assignee[0] : task.assignee
+                  return (
+                    <tr key={task.id}>
+                      <td className="px-4 py-2.5 font-medium">{task.title}</td>
+                      <td className="px-4 py-2.5">{assignee?.full_name || 'Unassigned'}</td>
+                      <td className="px-4 py-2.5 capitalize">{String(task.status || 'open').replace('_', ' ')}</td>
+                      <td className="px-4 py-2.5">{formatDate(task.due_at)}</td>
+                    </tr>
+                  )
+                })}
+                {(!companyTasks || companyTasks.length === 0) && (
+                  <tr><td colSpan={4} className="p-6 text-center text-gray-400">No tasks assigned for this company.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

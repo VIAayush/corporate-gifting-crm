@@ -8,7 +8,7 @@ The `*@oaklane.demo` login addresses are real Supabase credentials and must not 
 renamed.
 
 - GitHub: https://github.com/VIAayush/corporate-gifting-crm.git
-- Production: https://temporary-instant-tungsten-nd414b4.vercel.app/
+- Production: https://giffter.vercel.app/
 - Supabase project: `ajysowosgjaipczrwpfv` (ap-south-1)
 
 Do not create a second repository, Vercel project, or production URL. Do not reset the database.

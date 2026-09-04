@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid } from '@/lib/utils'
 import { ClipboardList, Building2, User, Calendar, DollarSign, Package } from 'lucide-react'
+import { requireStaff } from '@/lib/auth'
 
 export default async function RequirementDetailPage({
   params,
@@ -13,11 +14,10 @@ export default async function RequirementDetailPage({
   searchParams: Promise<{ tab?: string }>
 }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const { tab = 'overview' } = await searchParams
-  
+  await requireStaff(['admin', 'sales', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const [
     { data: req },

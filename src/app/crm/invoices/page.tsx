@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
 import Link from 'next/link'
 import { requireStaff } from '@/lib/auth'
 
@@ -60,15 +60,18 @@ export default async function InvoicesPage({
             </tr>
           </thead>
           <tbody>
-            {invoices?.map(invoice => (
+            {invoices?.map(invoice => {
+              const company = oneRelation(invoice.companies)
+              const order = oneRelation(invoice.orders)
+              return (
               <tr key={invoice.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
                 <td className="p-3 text-sm">
                   <Link href={`/crm/invoices/${invoice.id}`} className="text-blue-600 hover:underline">{invoice.invoice_number}</Link>
                 </td>
-                <td className="p-3 text-sm">{invoice.companies?.name}</td>
-                <td className="p-3 text-sm">{invoice.orders?.order_number}</td>
+                <td className="p-3 text-sm">{company?.name}</td>
+                <td className="p-3 text-sm">{order?.order_number}</td>
                 <td className="p-3 text-sm">{formatCurrency(invoice.amount)}</td>
-                <td className={`p-3 text-sm ${new Date(invoice.due_date) < new Date() && invoice.status !== 'paid' ? 'text-red-600 font-medium' : ''}`}>
+                <td className={`p-3 text-sm ${invoice.due_date && new Date(invoice.due_date) < new Date() && invoice.status !== 'paid' ? 'text-red-600 font-medium' : ''}`}>
                   {formatDate(invoice.due_date)}
                 </td>
                 <td className="p-3 text-sm">
@@ -81,7 +84,8 @@ export default async function InvoicesPage({
                   </span>
                 </td>
               </tr>
-            ))}
+              )
+            })}
             {(!invoices || invoices.length === 0) && (
               <tr>
                 <td colSpan={6} className="p-4 text-center text-[var(--color-text-secondary)]">No invoices found.</td>

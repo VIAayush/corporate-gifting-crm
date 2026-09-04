@@ -2,12 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
 import { QuotationActions } from './QuotationActions'
 import { FileText, Calendar, CheckCircle2 } from 'lucide-react'
 
 export default async function PortalQuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return redirect('/login')
@@ -23,7 +24,7 @@ export default async function PortalQuotationDetailPage({ params }: { params: Pr
       )
     `)
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
   if (!quote || quote.company_id !== companyId) {
     notFound()
@@ -77,17 +78,20 @@ export default async function PortalQuotationDetailPage({ params }: { params: Pr
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {quote.items?.map((item: any) => (
+                  {quote.items?.map((item: { id: string; quantity: number; unit_price: number; line_total: number; product?: { name?: string; sku?: string } | { name?: string; sku?: string }[] | null }) => {
+                    const product = oneRelation(item.product)
+                    return (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <div className="font-bold text-gray-900">{item.product?.name}</div>
-                        <div className="text-[10px] text-gray-400 font-mono">{item.product?.sku}</div>
+                        <div className="font-bold text-gray-900">{product?.name}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">{product?.sku}</div>
                       </td>
                       <td className="px-4 py-3 text-center font-semibold text-gray-800">{item.quantity} units</td>
                       <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(item.unit_price)}</td>
                       <td className="px-4 py-3 text-right font-bold text-gray-900">{formatCurrency(item.line_total)}</td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

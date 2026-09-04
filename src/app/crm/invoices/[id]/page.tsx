@@ -1,16 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
 import { recordPayment } from '../actions'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
 import { Receipt, Calendar, CreditCard, Building2, CheckCircle2 } from 'lucide-react'
+import { requireStaff } from '@/lib/auth'
 
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!isUuid(id)) notFound()
+  await requireStaff(['admin', 'accounts', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const [{ data: invoice }, { data: payments }] = await Promise.all([
     supabase.from('invoices').select('*, company:companies(id, name), order:orders(id, order_number)').eq('id', id).maybeSingle(),
@@ -19,6 +20,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
   if (!invoice) notFound()
 
+  const company = oneRelation(invoice.company)
+  const order = oneRelation(invoice.order)
   const totalPaid = payments?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0
   const balanceDue = Number(invoice.amount) - totalPaid
 
@@ -47,11 +50,11 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             </span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Invoice for {(invoice.company as any)?.name || 'Client'}
+            Invoice for {company?.name || 'Client'}
           </h1>
-          {invoice.order && (
+          {order && (
             <p className="text-xs text-gray-500 mt-0.5">
-              Linked Order: <Link href={`/crm/orders/${(invoice.order as any).id}`} className="font-semibold text-[#4A235A] hover:underline">{(invoice.order as any).order_number}</Link>
+              Linked Order: <Link href={`/crm/orders/${order.id}`} className="font-semibold text-[#4A235A] hover:underline">{order.order_number}</Link>
             </p>
           )}
         </div>

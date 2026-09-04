@@ -10,7 +10,7 @@ export default async function DepartmentPage() {
   const today = new Date().toISOString().slice(0, 10)
 
   const { data: department } = profile.department_id
-    ? await supabase.from('departments').select('id, name, slug, manager_id, manager:manager_id(full_name)').eq('id', profile.department_id).single()
+    ? await supabase.from('departments').select('id, name, slug, manager_id, manager:manager_id(full_name)').eq('id', profile.department_id).maybeSingle()
     : { data: null }
 
   const deptId = department?.id

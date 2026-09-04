@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, oneRelation } from '@/lib/utils'
 import { ProductImage } from '@/components/ui/product-image'
-import { Plus, Search, Globe, Lock, EyeOff } from 'lucide-react'
+import { Plus, Search, Globe, Lock, EyeOff, Upload } from 'lucide-react'
 import { requireStaff, canSeeCosts } from '@/lib/auth'
 
 const PAGE_SIZE = 50
@@ -64,12 +64,20 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           </p>
         </div>
         {['admin', 'sales'].includes(profile.role) && (
-        <Link
-          href="/crm/products/new"
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] hover:text-white shadow-sm transition-colors"
-        >
-          <Plus size={14} /> Add Product
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/crm/products/import"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-gray-800 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-colors"
+          >
+            <Upload size={14} /> Import CSV
+          </Link>
+          <Link
+            href="/crm/products/new"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] hover:text-white shadow-sm transition-colors"
+          >
+            <Plus size={14} /> Add Product
+          </Link>
+        </div>
         )}
       </div>
 
@@ -131,8 +139,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {products?.map((p: any) => {
+            {products?.map((p) => {
               const companyCount = p.company_product_access?.[0]?.count || 0
+              const brand = oneRelation(p.brand)
+              const category = oneRelation(p.category)
               return (
                 <tr key={p.id} className="hover:bg-gray-50/80 transition-colors">
                   <td className="px-4 py-3">
@@ -149,10 +159,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-600 font-medium">
-                    {p.brand?.name || '—'}
+                    {brand?.name || '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-600 font-medium">
-                    {p.category?.name || '—'}
+                    {category?.name || '—'}
                   </td>
                   {showCost && (
                     <td className="px-4 py-3 text-gray-700">

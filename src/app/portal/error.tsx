@@ -12,8 +12,8 @@ export default function PortalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Portal page error:', error);
-  }, [error]);
+    console.error('Portal page error:', error.message, error.digest, error.stack)
+  }, [error])
 
   return (
     <div className="max-w-lg bg-white border border-gray-200 rounded-lg p-6">

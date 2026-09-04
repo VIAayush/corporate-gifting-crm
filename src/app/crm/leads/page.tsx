@@ -28,7 +28,7 @@ type LeadRow = {
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ view?: string; stage?: string; owner?: string }> }) {
-  const profile = await requireStaff()
+  const profile = await requireStaff(['admin', 'sales', 'management'])
   const supabase = await createClient()
 
   const params = await searchParams
@@ -43,7 +43,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   if (params.stage) query = query.eq('stage', params.stage)
   if (params.owner && profile.role !== 'sales') query = query.eq('owner_id', params.owner)
 
-  const { data: leads } = await query
+  const { data: leads, error: leadsError } = await query
+  if (leadsError) {
+    console.error('Leads query failed:', leadsError.message, leadsError.code, leadsError.details)
+  }
   const { data: owners } = await supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales']).order('full_name')
 
   const stages = ['cold', 'warm', 'hot', 'client', 'regular_client']
@@ -71,10 +74,17 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         </div>
       </div>
 
+      {leadsError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Leads could not be loaded from the database. {leadsError.message}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-3 mb-6">
         <form className="flex gap-3">
-          <select name="stage" defaultValue={params.stage || ''} onChange={(e) => {}} className="border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm bg-white">
+          <input type="hidden" name="view" value={view} />
+          <select name="stage" defaultValue={params.stage || ''} className="border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm bg-white">
             <option value="">All Stages</option>
             {stages.map(s => <option key={s} value={s}>{LEAD_STAGE_LABELS[s]}</option>)}
           </select>
@@ -82,6 +92,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <option value="">All Owners</option>
             {owners?.map(o => <option key={o.id} value={o.id}>{o.full_name}</option>)}
           </select>
+          <button type="submit" className="px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white hover:bg-[var(--color-muted)]">
+            Filter
+          </button>
         </form>
       </div>
 

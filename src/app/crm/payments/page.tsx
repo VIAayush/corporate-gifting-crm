@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
 import Link from 'next/link'
 import { requireStaff } from '@/lib/auth'
 
@@ -35,24 +35,28 @@ export default async function PaymentsPage() {
             </tr>
           </thead>
           <tbody>
-            {payments?.map(payment => (
+            {payments?.map(payment => {
+              const invoice = oneRelation(payment.invoices)
+              const company = oneRelation(invoice?.companies)
+              return (
               <tr key={payment.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
                 <td className="p-3 text-sm">{formatDate(payment.payment_date)}</td>
                 <td className="p-3 text-sm font-medium text-green-600">{formatCurrency(payment.amount)}</td>
                 <td className="p-3 text-sm">
                   <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium uppercase tracking-wider text-gray-600">
-                    {payment.method.replace('_', ' ')}
+                    {String(payment.method || '').replace('_', ' ')}
                   </span>
                 </td>
                 <td className="p-3 text-sm text-[var(--color-text-secondary)]">{payment.reference || '-'}</td>
                 <td className="p-3 text-sm">
                   <Link href={`/crm/invoices/${payment.invoice_id}`} className="text-blue-600 hover:underline">
-                    {payment.invoices?.invoice_number}
+                    {invoice?.invoice_number}
                   </Link>
                 </td>
-                <td className="p-3 text-sm">{payment.invoices?.companies?.name}</td>
+                <td className="p-3 text-sm">{company?.name}</td>
               </tr>
-            ))}
+              )
+            })}
             {(!payments || payments.length === 0) && (
               <tr>
                 <td colSpan={6} className="p-4 text-center text-[var(--color-text-secondary)]">No payments found.</td>

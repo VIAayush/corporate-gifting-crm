@@ -29,14 +29,14 @@ export function CrmFrame({
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F4EFE6]">
-      <div className="hidden lg:flex">
+      <div className="hidden lg:flex h-full min-h-0">
         <Sidebar role={role} user={user} />
       </div>
 
       {open && (
         <div className="lg:hidden fixed inset-0 z-50">
           <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <div className="relative h-full w-64">
+          <div className="relative h-full w-64 min-h-0">
             <Sidebar role={role} user={user} onNavigate={() => setOpen(false)} />
           </div>
         </div>

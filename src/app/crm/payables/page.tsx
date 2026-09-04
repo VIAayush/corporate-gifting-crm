@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
 import { requireStaff } from '@/lib/auth'
 
 export default async function PayablesPage() {
@@ -29,17 +29,18 @@ export default async function PayablesPage() {
           <tbody>
             {payables?.map(payable => {
               const outstanding = Number(payable.amount) - Number(payable.amount_paid)
+              const order = oneRelation(payable.orders)
               return (
                 <tr key={payable.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
                   <td className="p-3 text-sm">
                     <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">{payable.vendor_type}</span>
                   </td>
                   <td className="p-3 text-sm font-medium">{payable.vendor_name || 'N/A'}</td>
-                  <td className="p-3 text-sm">{payable.orders?.order_number || 'N/A'}</td>
+                  <td className="p-3 text-sm">{order?.order_number || 'N/A'}</td>
                   <td className="p-3 text-sm">{formatCurrency(payable.amount)}</td>
                   <td className="p-3 text-sm text-green-600">{formatCurrency(payable.amount_paid)}</td>
                   <td className="p-3 text-sm font-medium">{formatCurrency(outstanding)}</td>
-                  <td className={`p-3 text-sm ${new Date(payable.due_date) < new Date() && payable.status !== 'paid' ? 'text-red-600' : ''}`}>
+                  <td className={`p-3 text-sm ${payable.due_date && new Date(payable.due_date) < new Date() && payable.status !== 'paid' ? 'text-red-600' : ''}`}>
                     {formatDate(payable.due_date)}
                   </td>
                   <td className="p-3 text-sm">
@@ -48,7 +49,7 @@ export default async function PayablesPage() {
                       payable.status === 'partially_paid' ? 'bg-blue-100 text-blue-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>
-                      {payable.status.replace('_', ' ')}
+                      {String(payable.status || '').replace('_', ' ')}
                     </span>
                   </td>
                 </tr>
