@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { formatCurrency } from '@/lib/utils'
 import { addCampaignProduct, setCampaignProductVisibility, removeCampaignProduct } from '../actions'
 import { BackButton } from '@/components/ui/back-button'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -33,7 +34,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <p className="text-xs mt-1">Status: {campaign.status} · Client catalogue: {campaign.published_to_client_at ? 'published' : 'not published'}</p>
       </div>
 
-      <form action={addCampaignProduct} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
+      <form action={asFormAction(addCampaignProduct)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
         <input type="hidden" name="campaign_id" value={campaign.id} />
         <select name="product_id" required className="border rounded-lg px-2 py-2">
           <option value="">Add from internal catalogue</option>
@@ -68,21 +69,21 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                   <td className="p-3 capitalize">{row.visibility}</td>
                   <td className="p-3 space-x-2">
                     {row.visibility !== 'published' ? (
-                      <form action={setCampaignProductVisibility} className="inline">
+                      <form action={asFormAction(setCampaignProductVisibility)} className="inline">
                         <input type="hidden" name="campaign_id" value={campaign.id} />
                         <input type="hidden" name="id" value={row.id} />
                         <input type="hidden" name="visibility" value="published" />
                         <button className="underline text-[#1A3022]">Publish to client</button>
                       </form>
                     ) : (
-                      <form action={setCampaignProductVisibility} className="inline">
+                      <form action={asFormAction(setCampaignProductVisibility)} className="inline">
                         <input type="hidden" name="campaign_id" value={campaign.id} />
                         <input type="hidden" name="id" value={row.id} />
                         <input type="hidden" name="visibility" value="unpublished" />
                         <button className="underline">Unpublish</button>
                       </form>
                     )}
-                    <form action={removeCampaignProduct} className="inline">
+                    <form action={asFormAction(removeCampaignProduct)} className="inline">
                       <input type="hidden" name="campaign_id" value={campaign.id} />
                       <input type="hidden" name="id" value={row.id} />
                       <button className="underline text-red-700">Remove</button>

@@ -1,9 +1,22 @@
 import React from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, asRows, oneRelation } from '@/lib/utils'
 import { FolderGit2, Building2 } from 'lucide-react'
 import { createCampaign } from './actions'
+import { asFormAction } from '@/lib/form-action'
+
+type CampaignCompany = { name: string | null }
+type CampaignRow = {
+  id: string
+  name: string
+  status?: string | null
+  employee_quantity?: number | null
+  budget_per_employee?: number | null
+  total_budget?: number | null
+  required_delivery_date?: string | null
+  company?: CampaignCompany | CampaignCompany[] | null
+}
 
 export default async function CampaignsPage() {
   const supabase = await createClient()
@@ -11,6 +24,8 @@ export default async function CampaignsPage() {
     supabase.from('campaigns').select('*, company:companies(name)').order('created_at', { ascending: false }),
     supabase.from('companies').select('id, name').order('name'),
   ])
+  const companyOptions = asRows<{ id: string; name: string }>(companies)
+  const campaignRows = asRows<CampaignRow>(campaigns)
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-6">
@@ -19,11 +34,11 @@ export default async function CampaignsPage() {
         <p className="text-xs text-[#7A7267] mt-1">Curate a subset of the internal catalogue, publish it to one client, and track their selections.</p>
       </div>
 
-      <form action={createCampaign} className="bg-white border border-[#E5DFD5] rounded-2xl p-5 grid md:grid-cols-3 gap-3 text-xs">
+      <form action={asFormAction(createCampaign)} className="bg-white border border-[#E5DFD5] rounded-2xl p-5 grid md:grid-cols-3 gap-3 text-xs">
         <input name="name" required placeholder="Campaign name" className="border rounded-lg px-3 py-2" />
         <select name="company_id" required className="border rounded-lg px-3 py-2">
           <option value="">Client company</option>
-          {(companies || []).map((c) => (
+          {companyOptions.map((c: { id: string; name: string }) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -36,9 +51,9 @@ export default async function CampaignsPage() {
       </form>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {campaigns?.length ? (
-          campaigns.map((camp) => {
-            const company = Array.isArray(camp.company) ? camp.company[0] : camp.company
+        {campaignRows.length > 0 ? (
+          campaignRows.map((camp: CampaignRow) => {
+            const company = oneRelation(camp.company)
             return (
               <Link key={camp.id} href={`/crm/campaigns/${camp.id}`} className="bg-white rounded-2xl border border-[#E5DFD5] p-6 space-y-4 hover:border-[#1A3022]">
                 <div className="flex items-start justify-between">

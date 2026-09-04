@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { updateOrgSettings } from './actions'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -24,7 +25,7 @@ export default async function SettingsPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-[var(--color-primary)] mb-6">Organization Settings</h1>
-      <form action={updateOrgSettings} className="bg-white p-6 rounded-lg border space-y-4 text-sm">
+      <form action={asFormAction(updateOrgSettings)} className="bg-white p-6 rounded-lg border space-y-4 text-sm">
         <label className="block">
           <span className="text-gray-500 text-xs">Organisation name</span>
           <input name="organisation_name" defaultValue={settings?.organisation_name || 'GIFFTER'} className="w-full border rounded-lg px-3 py-2 mt-1" />

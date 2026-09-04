@@ -1,10 +1,22 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { formatDate } from '@/lib/utils';
+import { formatDate, asRows, oneRelation } from '@/lib/utils';
 import { CompanyAvatar } from '@/components/ui/avatar';
 import { Search } from 'lucide-react';
 
 import { requireStaff, applyCompanyScope } from '@/lib/auth'
+
+type CompanyOwner = { full_name: string | null }
+type CompanyRow = {
+  id: string
+  name: string
+  logo_path: string | null
+  industry: string | null
+  city: string | null
+  status: string | null
+  created_at: string
+  owner?: CompanyOwner | CompanyOwner[] | null
+}
 
 export default async function Companies(props: { searchParams: Promise<{ q?: string; status?: string }> }) {
   const profile = await requireStaff()
@@ -21,6 +33,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
   if (status) query = query.eq('status', status);
 
   const { data: companies } = await query;
+  const companyRows = asRows<CompanyRow>(companies)
 
   return (
     <div className="p-6">
@@ -55,7 +68,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
       </div>
 
       <div className="bg-white border rounded-lg overflow-x-auto">
-        {companies && companies.length > 0 ? (
+        {companyRows.length > 0 ? (
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b">
@@ -69,7 +82,9 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
               </tr>
             </thead>
             <tbody>
-              {companies.map(c => (
+              {companyRows.map((c: CompanyRow) => {
+                const owner = oneRelation(c.owner)
+                return (
                 <tr key={c.id} className="border-b hover:bg-gray-50">
                   <td className="p-4">
                     <Link href={`/crm/companies/${c.id}`} className="flex items-center gap-3 hover:text-[var(--color-primary)]">
@@ -79,7 +94,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
                   </td>
                   <td className="p-4 text-gray-600">{c.industry || '-'}</td>
                   <td className="p-4 text-gray-600">{c.city || '-'}</td>
-                  <td className="p-4 text-gray-600">{(Array.isArray(c.owner) ? c.owner[0] : c.owner)?.full_name || '—'}</td>
+                  <td className="p-4 text-gray-600">{owner?.full_name || '—'}</td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${c.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                       {c.status}
@@ -88,7 +103,8 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
                   <td className="p-4 text-gray-500">{formatDate(c.created_at)}</td>
                   <td className="p-4"><Link href={`/crm/companies/${c.id}`} className="text-blue-600 hover:underline">View</Link></td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         ) : (

@@ -1,7 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDateTime } from '@/lib/utils'
+import { formatDateTime, asRows, oneRelation } from '@/lib/utils'
 import { requireStaff } from '@/lib/auth'
 import { createAnnouncement } from './actions'
+import { asFormAction } from '@/lib/form-action'
+
+type AnnouncementRow = {
+  id: string
+  title: string
+  body: string
+  created_at: string
+  author?: { full_name: string | null } | { full_name: string | null }[] | null
+}
 
 export default async function AnnouncementsPage() {
   const profile = await requireStaff()
@@ -12,6 +21,7 @@ export default async function AnnouncementsPage() {
     .from('announcements')
     .select('*, author:created_by(full_name)')
     .order('created_at', { ascending: false })
+  const announcementRows = asRows<AnnouncementRow>(announcements)
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -20,7 +30,7 @@ export default async function AnnouncementsPage() {
       </div>
 
       {canPost && (
-        <form action={createAnnouncement} className="bg-white rounded-lg border border-[var(--color-border)] p-4 mb-6 space-y-3">
+        <form action={asFormAction(createAnnouncement)} className="bg-white rounded-lg border border-[var(--color-border)] p-4 mb-6 space-y-3">
           <input name="title" required placeholder="Announcement title" className="w-full border rounded-lg px-3 py-2 text-sm" />
           <textarea name="body" required rows={3} placeholder="Message" className="w-full border rounded-lg px-3 py-2 text-sm" />
           <button type="submit" className="px-4 py-2 bg-[var(--color-primary)] text-white hover:text-white rounded font-medium hover:opacity-90 text-sm">
@@ -30,7 +40,9 @@ export default async function AnnouncementsPage() {
       )}
 
       <div className="flex flex-col gap-6">
-        {announcements?.map((ann: any) => (
+        {announcementRows.map((ann: AnnouncementRow) => {
+          const author = oneRelation(ann.author)
+          return (
           <div key={ann.id} className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] p-6 shadow-sm">
             <div className="flex justify-between items-start mb-4">
               <h2 className="text-xl font-bold text-gray-900">{ann.title}</h2>
@@ -40,11 +52,12 @@ export default async function AnnouncementsPage() {
             </div>
             <p className="text-gray-700 whitespace-pre-wrap mb-4">{ann.body}</p>
             <div className="text-sm font-medium text-gray-500 border-t border-gray-100 pt-4">
-              Posted by {ann.author?.full_name || 'Admin'}
+              Posted by {author?.full_name || 'Admin'}
             </div>
           </div>
-        ))}
-        {(!announcements || announcements.length === 0) && (
+          )
+        })}
+        {announcementRows.length === 0 && (
           <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
             <p className="text-gray-500">No announcements yet.</p>
           </div>

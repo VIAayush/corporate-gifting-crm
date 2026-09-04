@@ -3,6 +3,7 @@ import { formatDate } from '@/lib/utils'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createReview } from './actions'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function ReviewsPage() {
   const supabase = await createClient()
@@ -19,7 +20,7 @@ export default async function ReviewsPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-[var(--color-primary)]">Client Reviews</h1>
 
-      <form action={createReview} className="bg-white border rounded-2xl p-4 grid md:grid-cols-2 gap-3 text-xs">
+      <form action={asFormAction(createReview)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-2 gap-3 text-xs">
         <select name="company_id" required className="border rounded-lg px-2 py-2">
           <option value="">Company</option>
           {(companies || []).map((c) => (

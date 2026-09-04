@@ -15,6 +15,44 @@ function Card({ label, value, href, warn }: { label: string; value: string | num
   return href ? <Link href={href} className="block hover:border-[#1A3022]">{inner}</Link> : inner
 }
 
+type DashOrder = {
+  id: string
+  status: string
+  order_value: number | null
+  expected_delivery_date: string | null
+  assigned_to: string | null
+  current_department_id: string | null
+  stage_due_at: string | null
+  owner_id: string | null
+  company_id: string | null
+  gross_profit: number | null
+  created_at: string
+}
+type DashLead = { id: string; stage: string; owner_id: string | null; created_at: string; estimated_value: number | null }
+type DashReq = { id: string; status: string; owner_id: string | null; created_at: string }
+type DashQuote = { id: string; status: string | null; total: number | null; owner_id: string | null; created_at: string }
+type DashInvoice = { id?: string; amount: number; status: string; order_id?: string | null; created_at?: string }
+type DashPayable = { amount: number; status: string }
+type DashTask = { id: string; status: string | null; due_at: string | null; assigned_to: string | null; completed_at: string | null; department_id?: string | null }
+type DashDept = { id: string; name: string; slug?: string | null }
+type DashStaff = { id: string; full_name: string | null; role: string; department_id: string | null }
+type DashSample = { in_office: number | null; with_client: number | null; pending_supplier: number | null; with_team: number | null }
+type DashActivity = {
+  id: string
+  action: string
+  entity: string | null
+  entity_id: string | null
+  previous_value: unknown
+  new_value: unknown
+  created_at: string
+  user_id: string | null
+  profile?: { full_name: string | null } | { full_name: string | null }[] | null
+}
+
+function asList<T>(data: unknown): T[] {
+  return Array.isArray(data) ? data as T[] : []
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -104,20 +142,20 @@ export default async function DashboardPage({
       : Promise.resolve({ data: [] as { in_office: number; with_client: number; pending_supplier: number; with_team: number }[] }),
   ])
 
-  const orderRows = orders.data || []
-  const leadRows = leads.data || []
-  const reqRows = requirements.data || []
-  const quoteRows = quotations.data || []
-  const invoiceRows = invoices.data || []
-  const taskRows = tasks.data || []
-  const deptRows = departments.data || []
-  const staffRows = staff.data || []
-  const activityRows = activity.data || []
-  const sampleRows = samples.data || []
-  const samplesOffice = sampleRows.reduce((s, r) => s + Number(r.in_office || 0), 0)
-  const samplesClient = sampleRows.reduce((s, r) => s + Number(r.with_client || 0), 0)
-  const samplesSupplier = sampleRows.reduce((s, r) => s + Number(r.pending_supplier || 0), 0)
-  const samplesTeam = sampleRows.reduce((s, r) => s + Number(r.with_team || 0), 0)
+  const orderRows = asList<DashOrder>(orders.data)
+  const leadRows = asList<DashLead>(leads.data)
+  const reqRows = asList<DashReq>(requirements.data)
+  const quoteRows = asList<DashQuote>(quotations.data)
+  const invoiceRows = asList<DashInvoice>(invoices.data)
+  const taskRows = asList<DashTask>(tasks.data)
+  const deptRows = asList<DashDept>(departments.data)
+  const staffRows = asList<DashStaff>(staff.data)
+  const activityRows = asList<DashActivity>(activity.data)
+  const sampleRows = asList<DashSample>(samples.data)
+  const samplesOffice = sampleRows.reduce((s: number, r: DashSample) => s + Number(r.in_office || 0), 0)
+  const samplesClient = sampleRows.reduce((s: number, r: DashSample) => s + Number(r.with_client || 0), 0)
+  const samplesSupplier = sampleRows.reduce((s: number, r: DashSample) => s + Number(r.pending_supplier || 0), 0)
+  const samplesTeam = sampleRows.reduce((s: number, r: DashSample) => s + Number(r.with_team || 0), 0)
   const samplesOut = samplesClient + samplesSupplier + samplesTeam
 
   const convertedStages = new Set(['client', 'regular_client'])
@@ -148,7 +186,7 @@ export default async function DashboardPage({
   const partial = invoiceRows.filter((i) => i.status === 'partially_paid')
   const overdueInv = invoiceRows.filter((i) => i.status === 'overdue')
   const outstanding = invoiced - paid
-  const payableTotal = (payables.data || []).reduce((s, p) => s + Number(p.amount || 0), 0)
+  const payableTotal = asList<DashPayable>(payables.data).reduce((s: number, p: DashPayable) => s + Number(p.amount || 0), 0)
 
   const byStage = ORDER_LIFECYCLE.map((st) => {
     const rows = orderRows.filter((o) => o.status === st)

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import { requireStaff } from '@/lib/auth'
 import { updateTeamMember } from './actions'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function TeamPage() {
   await requireStaff(['admin'])
@@ -44,7 +45,7 @@ export default async function TeamPage() {
                   <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${roleColors[p.role] || 'bg-gray-100'}`}>{p.role}</span>
                 </td>
                 <td className="p-3" colSpan={4}>
-                  <form action={updateTeamMember} className="flex flex-wrap gap-2 items-center text-xs">
+                  <form action={asFormAction(updateTeamMember)} className="flex flex-wrap gap-2 items-center text-xs">
                     <input type="hidden" name="id" value={p.id} />
                     <select name="role" defaultValue={p.role} className="border rounded px-2 py-1">
                       {['admin', 'sales', 'operations', 'accounts', 'management'].map((r) => (

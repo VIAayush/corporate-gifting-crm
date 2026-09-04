@@ -1,7 +1,7 @@
 'use client'
 
 import { useFormStatus } from 'react-dom'
-import { toggleOfferingSelection } from './actions'
+import { toggleOfferingSelectionForm } from './actions'
 
 function ActionButton({ label, className }: { label: string; className: string }) {
   const { pending } = useFormStatus()
@@ -26,7 +26,7 @@ export function OfferingActions({
 
   return (
     <div className="flex gap-2">
-      <form action={toggleOfferingSelection} className="flex-1">
+      <form action={toggleOfferingSelectionForm} className="flex-1">
         <input type="hidden" name="campaign_id" value={campaignId} />
         <input type="hidden" name="campaign_product_id" value={campaignProductId} />
         <input type="hidden" name="kind" value="shortlisted" />
@@ -40,7 +40,7 @@ export function OfferingActions({
           }`}
         />
       </form>
-      <form action={toggleOfferingSelection} className="flex-1">
+      <form action={toggleOfferingSelectionForm} className="flex-1">
         <input type="hidden" name="campaign_id" value={campaignId} />
         <input type="hidden" name="campaign_product_id" value={campaignProductId} />
         <input type="hidden" name="kind" value="selected" />

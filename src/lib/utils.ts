@@ -97,6 +97,17 @@ export const QUOTATION_STATUS_LABELS: Record<string, string> = {
   expired: "Expired",
 }
 
+/** Normalize a Supabase one-to-one embed that may arrive as an object or a one-element array. */
+export function oneRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) return null
+  return Array.isArray(value) ? (value[0] ?? null) : value
+}
+
+/** Coerce an untyped query result into a typed row array. */
+export function asRows<T>(data: unknown): T[] {
+  return Array.isArray(data) ? (data as T[]) : []
+}
+
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   issued: "Issued",

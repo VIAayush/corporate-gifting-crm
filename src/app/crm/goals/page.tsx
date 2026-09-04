@@ -1,8 +1,35 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, asRows } from '@/lib/utils'
 import { createGoal } from './actions'
 import { requireStaff } from '@/lib/auth'
 import { applyOrderScope } from '@/lib/auth'
+import { asFormAction } from '@/lib/form-action'
+
+type TeamMember = { id: string; full_name: string | null | undefined }
+
+type GoalOrder = {
+  order_value: number | null
+  created_at: string
+  owner_id: string | null
+  status: string
+}
+
+type GoalRow = {
+  id: string
+  title: string
+  metric: string
+  target: number | string | null
+  period_start: string | null
+  period_type: string | null
+  owner_id: string | null
+  owner?: { full_name: string | null } | { full_name: string | null }[] | null
+}
+
+function numericAmount(value: number | string | null | undefined): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
 
 export default async function GoalsPage() {
   const profile = await requireStaff(['admin', 'management', 'sales'])
@@ -26,25 +53,28 @@ export default async function GoalsPage() {
     supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales', 'management']).order('full_name'),
   ])
 
-  const goalsWithProgress = goals?.map((goal) => {
+  const orderRows = asRows<GoalOrder>(orders)
+  const teamRows = asRows<TeamMember>(team)
+  const goalsWithProgress = asRows<GoalRow>(goals).map((goal: GoalRow) => {
     let actual = 0
-    if (goal.metric === 'revenue' && orders) {
+    const target = numericAmount(goal.target)
+    if (goal.metric === 'revenue' && orderRows.length > 0) {
       const periodStart = goal.period_start ? new Date(goal.period_start) : new Date()
       const periodEnd = new Date(periodStart)
       if (goal.period_type === 'year') periodEnd.setFullYear(periodEnd.getFullYear() + 1)
       else if (goal.period_type === 'quarter') periodEnd.setMonth(periodEnd.getMonth() + 3)
       else periodEnd.setMonth(periodEnd.getMonth() + 1)
 
-      const relevantOrders = orders.filter((o) => {
+      const relevantOrders = orderRows.filter((o: GoalOrder) => {
         const d = new Date(o.created_at)
         const isCorrectPeriod = d >= periodStart && d < periodEnd
         const isCorrectOwner = goal.owner_id ? o.owner_id === goal.owner_id : true
         return isCorrectPeriod && isCorrectOwner
       })
-      actual = relevantOrders.reduce((acc, curr) => acc + Number(curr.order_value), 0)
+      actual = relevantOrders.reduce((acc: number, curr: GoalOrder) => acc + Number(curr.order_value), 0)
     }
-    const progress = Number(goal.target) ? Math.min(100, Math.max(0, (actual / Number(goal.target)) * 100)) : 0
-    return { ...goal, actual, progress }
+    const progress = target ? Math.min(100, Math.max(0, (actual / target) * 100)) : 0
+    return { ...goal, actual, progress, target }
   })
 
   return (
@@ -52,7 +82,7 @@ export default async function GoalsPage() {
       <h1 className="text-2xl font-bold text-[var(--color-primary)]">Goal Tracker</h1>
 
       {(profile.role === 'admin' || profile.role === 'management') && (
-      <form action={createGoal} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
+      <form action={asFormAction(createGoal)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
         <input name="title" required placeholder="Goal title" className="border rounded-lg px-2 py-2" />
         <select name="metric" className="border rounded-lg px-2 py-2">
           <option value="revenue">Revenue</option>
@@ -67,8 +97,8 @@ export default async function GoalsPage() {
         <input name="period_start" type="date" required className="border rounded-lg px-2 py-2" />
         <select name="owner_id" className="border rounded-lg px-2 py-2">
           <option value="">Company-wide</option>
-          {(team || []).map((p) => (
-            <option key={p.id} value={p.id}>{p.full_name}</option>
+          {teamRows.map((p: TeamMember) => (
+            <option key={p.id} value={p.id}>{p.full_name ?? ''}</option>
           ))}
         </select>
         <button className="bg-[#1A3022] text-white hover:text-white rounded-lg font-semibold md:col-span-3 py-2">Add goal</button>

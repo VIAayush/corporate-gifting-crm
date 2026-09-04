@@ -1,8 +1,25 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDate } from '@/lib/utils'
+import { formatDate, asRows, oneRelation } from '@/lib/utils'
 import Link from 'next/link'
 import { registerMockup } from './actions'
 import { requireStaff, applyOwnerScope, applyOrderScope } from '@/lib/auth'
+import { asFormAction } from '@/lib/form-action'
+
+type RequirementOption = { id: string; name: string }
+type OrderOption = { id: string; order_number: string | null }
+type Named = { name?: string | null; full_name?: string | null; company?: Named | Named[] | null }
+type MockupRow = {
+  id: string
+  file_name?: string | null
+  mime_type?: string | null
+  storage_path?: string | null
+  status?: string | null
+  created_at?: string | null
+  order_id?: string | null
+  requirement?: Named | Named[] | null
+  order?: { order_number?: string | null } | { order_number?: string | null }[] | null
+  uploader?: { full_name?: string | null } | { full_name?: string | null }[] | null
+}
 
 function fileHref(path: string | null) {
   if (!path) return null
@@ -19,6 +36,9 @@ export default async function MockupsPage() {
     applyOwnerScope(supabase.from('requirements').select('id, name').order('created_at', { ascending: false }).limit(50), profile),
     applyOrderScope(supabase.from('orders').select('id, order_number').order('created_at', { ascending: false }).limit(50), profile),
   ])
+  const requirementOptions = asRows<RequirementOption>(requirements)
+  const orderOptions = asRows<OrderOption>(orders)
+  const mockupRows = asRows<MockupRow>(mockups)
 
   return (
     <div className="p-6 space-y-6">
@@ -27,7 +47,7 @@ export default async function MockupsPage() {
         <p className="text-xs text-[#7A7267] mt-1">Attach mockup files to a requirement or order. Shared mockups are visible in the client portal.</p>
       </div>
 
-      <form action={registerMockup} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
+      <form action={asFormAction(registerMockup)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
         <input name="file_url" required placeholder="File URL" className="border rounded-lg px-2 py-2" />
         <input name="file_name" placeholder="File name" className="border rounded-lg px-2 py-2" />
         <select name="mime_type" className="border rounded-lg px-2 py-2">
@@ -37,13 +57,13 @@ export default async function MockupsPage() {
         </select>
         <select name="requirement_id" className="border rounded-lg px-2 py-2">
           <option value="">Requirement (optional)</option>
-          {(requirements || []).map((r) => (
+          {requirementOptions.map((r: RequirementOption) => (
             <option key={r.id} value={r.id}>{r.name}</option>
           ))}
         </select>
         <select name="order_id" className="border rounded-lg px-2 py-2">
           <option value="">Order (optional)</option>
-          {(orders || []).map((o) => (
+          {orderOptions.map((o: OrderOption) => (
             <option key={o.id} value={o.id}>{o.order_number}</option>
           ))}
         </select>
@@ -55,7 +75,7 @@ export default async function MockupsPage() {
       </form>
 
       <div className="bg-white rounded-lg border overflow-hidden">
-        {mockups && mockups.length > 0 ? (
+        {mockupRows.length > 0 ? (
           <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-gray-50 text-xs text-gray-500">
@@ -67,12 +87,12 @@ export default async function MockupsPage() {
               </tr>
             </thead>
             <tbody>
-              {mockups.map((mockup) => {
-                const requirement = Array.isArray(mockup.requirement) ? mockup.requirement[0] : mockup.requirement
-                const company = requirement && !Array.isArray(requirement.company) ? requirement.company : requirement?.company?.[0]
-                const order = Array.isArray(mockup.order) ? mockup.order[0] : mockup.order
-                const uploader = Array.isArray(mockup.uploader) ? mockup.uploader[0] : mockup.uploader
-                const href = fileHref(mockup.storage_path)
+              {mockupRows.map((mockup: MockupRow) => {
+                const requirement = oneRelation(mockup.requirement)
+                const company = oneRelation(requirement?.company)
+                const order = oneRelation(mockup.order)
+                const uploader = oneRelation(mockup.uploader)
+                const href = fileHref(mockup.storage_path ?? null)
                 return (
                   <tr key={mockup.id} className="border-b text-sm">
                     <td className="p-3">

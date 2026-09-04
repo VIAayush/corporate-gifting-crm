@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, asRows, oneRelation } from '@/lib/utils'
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'bg-blue-100 text-blue-800',
@@ -10,6 +10,20 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 import { requireStaff, applyOwnerScope } from '@/lib/auth'
+
+type ReqCompany = { id: string; name: string }
+type ReqOwner = { id: string; full_name: string | null }
+type RequirementRow = {
+  id: string
+  title?: string | null
+  name?: string | null
+  budget?: number | null
+  quantity?: number | null
+  deadline?: string | null
+  status?: string | null
+  company?: ReqCompany | ReqCompany[] | null
+  owner?: ReqOwner | ReqOwner[] | null
+}
 
 export default async function RequirementsPage(props: { searchParams: Promise<{ status?: string }> }) {
   const profile = await requireStaff()
@@ -29,6 +43,7 @@ export default async function RequirementsPage(props: { searchParams: Promise<{ 
   }
 
   const { data: requirements, error } = await query
+  const requirementRows = asRows<RequirementRow>(requirements)
 
   const statuses = ['all', 'active', 'won', 'lost', 'closed']
 
@@ -67,26 +82,30 @@ export default async function RequirementsPage(props: { searchParams: Promise<{ 
             </tr>
           </thead>
           <tbody className="divide-y">
-            {requirements?.map((req: any) => (
+            {requirementRows.map((req: RequirementRow) => {
+              const company = oneRelation(req.company)
+              const owner = oneRelation(req.owner)
+              return (
               <tr key={req.id} className="hover:bg-gray-50">
                 <td className="p-4">
                   <Link href={`/crm/requirements/${req.id}`} className="text-blue-600 hover:underline font-medium">
-                    {req.title}
+                    {req.title || req.name}
                   </Link>
                 </td>
-                <td className="p-4">{req.company?.name || '-'}</td>
-                <td className="p-4">{req.owner?.full_name || '-'}</td>
+                <td className="p-4">{company?.name || '-'}</td>
+                <td className="p-4">{owner?.full_name || '-'}</td>
                 <td className="p-4">{req.budget ? formatCurrency(req.budget) : '-'}</td>
                 <td className="p-4">{req.quantity || '-'}</td>
                 <td className="p-4">{req.deadline ? formatDate(req.deadline) : '-'}</td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-800'}`}>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[req.status || ''] || 'bg-gray-100 text-gray-800'}`}>
                     {req.status || 'unknown'}
                   </span>
                 </td>
               </tr>
-            ))}
-            {!requirements?.length && (
+              )
+            })}
+            {requirementRows.length === 0 && (
               <tr>
                 <td colSpan={7} className="p-8 text-center text-gray-500">No requirements found.</td>
               </tr>

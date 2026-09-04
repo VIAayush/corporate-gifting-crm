@@ -57,12 +57,21 @@ export function seesAllSalesRecords(profile: ProfileSession) {
   return profile.role === "admin" || profile.role === "management"
 }
 
-export function applyOwnerScope(query: any, profile: ProfileSession, column = "owner_id") {
-  if (seesAllSalesRecords(profile)) return query
-  return query.eq(column, profile.id)
+type Scopeable<Q> = {
+  eq: (column: string, value: string) => Q
+  or: (filters: string) => Q
 }
 
-export function applyCompanyScope(query: any, profile: ProfileSession) {
+function scopeable<Q>(query: Q): Scopeable<Q> {
+  return query as Scopeable<Q>
+}
+
+export function applyOwnerScope<Q>(query: Q, profile: ProfileSession, column = "owner_id"): Q {
+  if (seesAllSalesRecords(profile)) return query
+  return scopeable(query).eq(column, profile.id)
+}
+
+export function applyCompanyScope<Q>(query: Q, profile: ProfileSession): Q {
   if (
     profile.role === "admin" ||
     profile.role === "management" ||
@@ -71,20 +80,20 @@ export function applyCompanyScope(query: any, profile: ProfileSession) {
   ) {
     return query
   }
-  return query.eq("owner_id", profile.id)
+  return scopeable(query).eq("owner_id", profile.id)
 }
 
-export function applyOrderScope(query: any, profile: ProfileSession) {
+export function applyOrderScope<Q>(query: Q, profile: ProfileSession): Q {
   if (profile.role === "admin" || profile.role === "management" || profile.role === "accounts") {
     return query
   }
   if (profile.role === "sales") {
-    return query.or(`owner_id.eq.${profile.id},assigned_to.eq.${profile.id}`)
+    return scopeable(query).or(`owner_id.eq.${profile.id},assigned_to.eq.${profile.id}`)
   }
   if (profile.role === "operations") {
     const parts = [`assigned_to.eq.${profile.id}`, `operations_user_id.eq.${profile.id}`]
     if (profile.department_id) parts.push(`current_department_id.eq.${profile.department_id}`)
-    return query.or(parts.join(","))
+    return scopeable(query).or(parts.join(","))
   }
-  return query.eq("assigned_to", profile.id)
+  return scopeable(query).eq("assigned_to", profile.id)
 }

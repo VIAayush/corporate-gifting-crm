@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { OfferingActions } from './OfferingActions'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, asRows } from '@/lib/utils'
 import { ProductImage } from '@/components/ui/product-image'
 import { Package, Search } from 'lucide-react'
 
@@ -34,7 +34,9 @@ export default async function PortalCataloguePage({
       supabase.from('client_product_selections').select('campaign_product_id, kind').eq('company_id', companyId),
     ])
 
-    const selectionByOffering = new Map((selections || []).map((s) => [s.campaign_product_id, s.kind]))
+    const selectionByOffering = new Map(
+      asRows<{ campaign_product_id: string; kind: string }>(selections).map((s: { campaign_product_id: string; kind: string }) => [s.campaign_product_id, s.kind])
+    )
 
     return (
       <div className="space-y-6">

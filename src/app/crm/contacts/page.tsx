@@ -1,8 +1,19 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { createContact } from './actions'
-import { requireStaff, applyCompanyScope } from '@/lib/auth'
+import { requireStaff } from '@/lib/auth'
 import { CompanyAvatar } from '@/components/ui/avatar'
+import { asFormAction } from '@/lib/form-action'
+import { oneRelation, asRows } from '@/lib/utils'
+
+type CompanyOption = { id: string; name: string; logo_path: string | null }
+type ContactRow = {
+  id: string
+  full_name: string
+  email: string | null
+  phone: string | null
+  company?: CompanyOption | CompanyOption[] | null
+}
 
 export default async function ContactsPage(props: { searchParams: Promise<{ search?: string }> }) {
   const profile = await requireStaff(['admin', 'sales', 'management'])
@@ -10,19 +21,26 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
   const search = searchParams.search || ''
 
   const supabase = await createClient()
-  const companyQuery = applyCompanyScope(
-    supabase.from('companies').select('id, name, logo_path').order('name'),
-    profile
+  const companiesQuery = supabase.from('companies').select('id, name, logo_path').order('name')
+  const { data: companies } = await (
+    profile.role === 'admin' ||
+    profile.role === 'management' ||
+    profile.role === 'accounts' ||
+    profile.role === 'operations'
+      ? companiesQuery
+      : companiesQuery.eq('owner_id', profile.id)
   )
-  const { data: companies } = await companyQuery
-  const companyIds = (companies || []).map((c) => c.id)
+  const companyRows = asRows<CompanyOption>(companies)
+  const companyIds = companyRows.map((c: CompanyOption) => c.id)
 
-  let query = supabase.from('contacts').select('*, company:companies(id, name, logo_path)').order('full_name')
-  if (companyIds.length > 0) query = query.in('company_id', companyIds)
-  else query = query.eq('company_id', '00000000-0000-0000-0000-000000000000')
-  if (search) query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`)
-
-  const { data: contacts } = await query
+  const contactsSelect = 'id, full_name, email, phone, company:companies(id, name, logo_path)'
+  const contactsByCompany = companyIds.length > 0
+    ? supabase.from('contacts').select(contactsSelect).order('full_name').in('company_id', companyIds)
+    : supabase.from('contacts').select(contactsSelect).order('full_name').eq('company_id', '00000000-0000-0000-0000-000000000000')
+  const { data: contacts } = search
+    ? await contactsByCompany.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`)
+    : await contactsByCompany
+  const contactRows = asRows<ContactRow>(contacts)
 
   return (
     <div className="p-6 space-y-6">
@@ -30,11 +48,11 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
         <h1 className="text-2xl font-semibold text-[var(--color-primary)]">Contacts</h1>
       </div>
 
-      <form action={createContact} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
+      <form action={asFormAction(createContact)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
         <input name="full_name" required placeholder="Full name" className="border rounded-lg px-2 py-2" />
         <select name="company_id" required className="border rounded-lg px-2 py-2">
           <option value="">Company</option>
-          {(companies || []).map((c) => (
+          {companyRows.map((c: CompanyOption) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -66,8 +84,8 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
             </tr>
           </thead>
           <tbody>
-            {(contacts || []).map((c: any) => {
-              const company = Array.isArray(c.company) ? c.company[0] : c.company
+            {contactRows.map((c: ContactRow) => {
+              const company = oneRelation(c.company)
               return (
                 <tr key={c.id} className="border-t">
                   <td className="p-3 font-medium">{c.full_name}</td>
@@ -84,7 +102,7 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
                 </tr>
               )
             })}
-            {(!contacts || contacts.length === 0) && (
+            {contactRows.length === 0 && (
               <tr><td colSpan={4} className="p-8 text-center text-gray-500">No contacts in your assigned companies.</td></tr>
             )}
           </tbody>

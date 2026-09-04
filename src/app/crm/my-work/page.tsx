@@ -1,8 +1,53 @@
 import { createClient } from '@/lib/supabase/server'
 import { requireStaff, applyOwnerScope } from '@/lib/auth'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation, asRows } from '@/lib/utils'
 import { ORDER_STATUS_LABELS, orderHealth, HEALTH_LABELS, HEALTH_STYLES } from '@/lib/order-workflow'
 import Link from 'next/link'
+
+type NamedCompany = { name: string | null }
+type WorkLead = {
+  id: string
+  stage: string
+  estimated_value: number | null
+  created_at: string
+  company?: NamedCompany | NamedCompany[] | null
+}
+type WorkRequirement = {
+  id: string
+  name: string
+  status: string
+  deadline: string | null
+  created_at: string
+}
+type WorkQuote = {
+  id: string
+  quotation_number: string | null
+  status: string | null
+  total: number | null
+  created_at: string
+}
+type WorkOrder = {
+  id: string
+  order_number: string | null
+  status: string
+  expected_delivery_date: string | null
+  stage_due_at: string | null
+  order_value: number | null
+  next_action: string | null
+  created_at: string
+  company?: NamedCompany | NamedCompany[] | null
+}
+type WorkTask = {
+  id: string
+  title: string
+  due_at: string | null
+  status: string | null
+  priority: string | null
+  order_id: string | null
+  completed_at: string | null
+  created_at: string
+  orders?: { order_number: string | null } | { order_number: string | null }[] | null
+}
 
 const FILTERS = [
   { id: 'today', label: 'Today' },
@@ -59,11 +104,15 @@ export default async function MyWorkPage({
     return true
   }
 
-  const openTasks = (tasks || []).filter((t) => t.status !== 'done' && !t.completed_at)
-  const completedTasks = (tasks || []).filter((t) => t.status === 'done' || t.completed_at)
-  const overdueTasks = openTasks.filter((t) => t.due_at && t.due_at < today)
-  const myOrders = orders || []
-  const overdueOrders = myOrders.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
+  const taskRows = asRows<WorkTask>(tasks)
+  const leadRows = asRows<WorkLead>(leads)
+  const requirementRows = asRows<WorkRequirement>(requirements)
+  const quoteRows = asRows<WorkQuote>(quotations)
+  const openTasks = taskRows.filter((t: WorkTask) => t.status !== 'done' && !t.completed_at)
+  const completedTasks = taskRows.filter((t: WorkTask) => t.status === 'done' || t.completed_at)
+  const overdueTasks = openTasks.filter((t: WorkTask) => t.due_at && t.due_at < today)
+  const myOrders = asRows<WorkOrder>(orders)
+  const overdueOrders = myOrders.filter((o: WorkOrder) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
 
   const visibleTasks =
     filter === 'completed' ? completedTasks :
@@ -75,9 +124,9 @@ export default async function MyWorkPage({
     filter === 'overdue' ? overdueOrders :
     myOrders.filter((o) => inRange(o.created_at || o.expected_delivery_date))
 
-  const visibleLeads = (leads || []).filter((l) => filter === 'completed' ? ['client', 'regular_client'].includes(l.stage) : inRange(l.created_at))
-  const visibleReqs = (requirements || []).filter((r) => filter === 'completed' ? r.status !== 'active' : inRange(r.created_at || r.deadline))
-  const visibleQuotes = (quotations || []).filter((q) => filter === 'completed' ? q.status === 'accepted' : inRange(q.created_at))
+  const visibleLeads = leadRows.filter((l: WorkLead) => filter === 'completed' ? ['client', 'regular_client'].includes(l.stage) : inRange(l.created_at))
+  const visibleReqs = requirementRows.filter((r: WorkRequirement) => filter === 'completed' ? r.status !== 'active' : inRange(r.created_at || r.deadline))
+  const visibleQuotes = quoteRows.filter((q: WorkQuote) => filter === 'completed' ? q.status === 'accepted' : inRange(q.created_at))
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <section className="bg-white rounded-2xl border border-[#E5DFD5] p-5 space-y-3">
@@ -108,16 +157,16 @@ export default async function MyWorkPage({
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Leads</p><p className="text-lg font-semibold">{(leads || []).length}</p></div>
-        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Requirements</p><p className="text-lg font-semibold">{(requirements || []).length}</p></div>
-        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Quotations</p><p className="text-lg font-semibold">{(quotations || []).length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Leads</p><p className="text-lg font-semibold">{leadRows.length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Requirements</p><p className="text-lg font-semibold">{requirementRows.length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Quotations</p><p className="text-lg font-semibold">{quoteRows.length}</p></div>
         <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Orders</p><p className="text-lg font-semibold">{myOrders.length}</p></div>
       </div>
 
       <Section title="My tasks">
         {visibleTasks.length === 0 && <p className="text-sm text-gray-500">No tasks in this view.</p>}
-        {visibleTasks.map((t) => {
-          const ord = Array.isArray(t.orders) ? t.orders[0] : t.orders
+        {visibleTasks.map((t: WorkTask) => {
+          const ord = oneRelation(t.orders)
           return (
             <Link key={t.id} href={t.order_id ? `/crm/orders/${t.order_id}` : '/crm/tasks'} className="block p-3 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
               <p className="text-sm font-medium">{t.title}</p>
@@ -129,8 +178,8 @@ export default async function MyWorkPage({
 
       <Section title="My orders">
         {visibleOrders.length === 0 && <p className="text-sm text-gray-500">No orders in this view.</p>}
-        {visibleOrders.map((o) => {
-          const company = Array.isArray(o.company) ? o.company[0] : o.company
+        {visibleOrders.map((o: WorkOrder) => {
+          const company = oneRelation(o.company)
           const health = orderHealth(o.status, o.expected_delivery_date, o.stage_due_at)
           return (
             <Link key={o.id} href={`/crm/orders/${o.id}`} className="flex items-center justify-between p-3 rounded-xl border border-[#EFE9E0] hover:bg-[#FAF7F2]">
@@ -148,8 +197,8 @@ export default async function MyWorkPage({
         <>
           <Section title="My leads">
             {visibleLeads.length === 0 && <p className="text-sm text-gray-500">No leads in this view.</p>}
-            {visibleLeads.map((l: any) => {
-              const company = Array.isArray(l.company) ? l.company[0] : l.company
+            {visibleLeads.map((l: WorkLead) => {
+              const company = oneRelation(l.company)
               return (
                 <Link key={l.id} href={`/crm/leads/${l.id}`} className="block text-sm py-1 hover:underline">
                   {company?.name || 'Lead'} · {l.stage} · {formatCurrency(l.estimated_value)}
@@ -159,7 +208,7 @@ export default async function MyWorkPage({
           </Section>
           <Section title="My requirements">
             {visibleReqs.length === 0 && <p className="text-sm text-gray-500">No requirements in this view.</p>}
-            {visibleReqs.map((r) => (
+            {visibleReqs.map((r: WorkRequirement) => (
               <Link key={r.id} href={`/crm/requirements/${r.id}`} className="block text-sm py-1 hover:underline">
                 {r.name} · {r.status}
               </Link>
@@ -167,7 +216,7 @@ export default async function MyWorkPage({
           </Section>
           <Section title="My quotations">
             {visibleQuotes.length === 0 && <p className="text-sm text-gray-500">No quotations in this view.</p>}
-            {visibleQuotes.map((q) => (
+            {visibleQuotes.map((q: WorkQuote) => (
               <Link key={q.id} href={`/crm/quotations/${q.id}`} className="block text-sm py-1 hover:underline">
                 {q.quotation_number} · {q.status} · {formatCurrency(q.total)}
               </Link>

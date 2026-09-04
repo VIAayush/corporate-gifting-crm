@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, asRows, oneRelation } from '@/lib/utils'
 
 const STATUS_COLORS: Record<string, string> = {
   created: 'bg-blue-100 text-blue-800',
@@ -15,6 +15,18 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 import { requireStaff, applyOrderScope } from '@/lib/auth'
+
+type OrderCompany = { id: string; name: string }
+type OrderOwner = { id: string; full_name: string | null }
+type OrderRow = {
+  id: string
+  order_number: string | null
+  order_value: number | null
+  status: string
+  expected_delivery_date: string | null
+  company?: OrderCompany | OrderCompany[] | null
+  owner?: OrderOwner | OrderOwner[] | null
+}
 
 export default async function OrdersPage(props: { searchParams: Promise<{ status?: string }> }) {
   const profile = await requireStaff()
@@ -34,6 +46,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
   }
 
   const { data: orders, error } = await query
+  const orderRows = asRows<OrderRow>(orders)
 
   const statuses = ['all', 'created', 'confirmed', 'procurement', 'printing', 'quality_check', 'ready_to_dispatch', 'dispatched', 'delivered']
 
@@ -70,9 +83,11 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
             </tr>
           </thead>
           <tbody className="divide-y">
-            {orders?.map((order: any) => {
+            {orderRows.map((order: OrderRow) => {
               const isOverdue = order.expected_delivery_date && order.expected_delivery_date < today && order.status !== 'delivered'
-              
+              const company = oneRelation(order.company)
+              const owner = oneRelation(order.owner)
+
               return (
                 <tr key={order.id} className={`hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
                   <td className="p-4">
@@ -81,7 +96,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
                     </Link>
                   </td>
                   <td className="p-4">
-                    {order.company?.name || '-'}
+                    {company?.name || '-'}
                   </td>
                   <td className="p-4">{formatCurrency(order.order_value || 0)}</td>
                   <td className="p-4">
@@ -92,11 +107,11 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
                   <td className={`p-4 ${isOverdue ? 'text-red-600 font-medium' : ''}`}>
                     {order.expected_delivery_date ? formatDate(order.expected_delivery_date) : '-'}
                   </td>
-                  <td className="p-4">{order.owner?.full_name || '-'}</td>
+                  <td className="p-4">{owner?.full_name || '-'}</td>
                 </tr>
               )
             })}
-            {!orders?.length && (
+            {orderRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-8 text-center text-gray-500">No orders found.</td>
               </tr>

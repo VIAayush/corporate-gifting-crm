@@ -43,3 +43,7 @@ export async function toggleOfferingSelection(formData: FormData) {
   revalidatePath(`/crm/campaigns/${campaignId}`)
   return { success: true }
 }
+
+export async function toggleOfferingSelectionForm(formData: FormData): Promise<void> {
+  await toggleOfferingSelection(formData)
+}

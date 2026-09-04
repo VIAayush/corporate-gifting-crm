@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, oneRelation } from '@/lib/utils'
 import { ORDER_LIFECYCLE, CLIENT_STATUS_LABELS, lifecycleIndex } from '@/lib/order-workflow'
 import { Truck } from 'lucide-react'
+import { ProductImage } from '@/components/ui/product-image'
 
 export default async function PortalOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -29,7 +30,15 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
   }
 
   const currentStageIndex = lifecycleIndex(order.status)
-  const campaign = Array.isArray(order.campaign) ? order.campaign[0] : order.campaign
+  const campaign = oneRelation(order.campaign)
+  const courier = oneRelation(order.courier_partner)
+  const items = (order.items ?? []).map((item) => ({
+    id: item.id,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    line_total: item.line_total,
+    product: oneRelation(item.product),
+  }))
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -76,7 +85,7 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
             <div className="bg-emerald-50 p-4 rounded-xl flex items-center gap-3 text-xs">
               <Truck size={16} />
               <div>
-                Dispatched via {(order.courier_partner as { name?: string })?.name || 'courier'} · AWB {order.tracking_number}
+                Dispatched via {courier?.name || 'courier'} · AWB {order.tracking_number}
               </div>
             </div>
           </div>
@@ -86,13 +95,22 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
           <h3 className="text-xs font-bold uppercase mb-3">Items</h3>
           <table className="w-full text-xs">
             <thead><tr className="text-left text-gray-500">
-              <th className="py-2">Product</th><th>Qty</th><th className="text-right">Amount</th>
+              <th className="py-2">Product</th><th>Qty</th><th className="text-right">Unit</th><th className="text-right">Amount</th>
             </tr></thead>
             <tbody>
-              {order.items?.map((item: { id: string; quantity: number; unit_price: number; line_total: number; product?: { name?: string } }) => (
+              {items.map((item) => (
                 <tr key={item.id} className="border-t">
-                  <td className="py-2">{item.product?.name}</td>
+                  <td className="py-2">
+                    <div className="flex items-center gap-2">
+                      <ProductImage src={item.product?.image_url} alt={item.product?.name || 'Product'} size="xs" className="rounded" />
+                      <div>
+                        <p>{item.product?.name || 'Product'}</p>
+                        {item.product?.sku ? <p className="font-mono text-[10px] text-gray-400">{item.product.sku}</p> : null}
+                      </div>
+                    </div>
+                  </td>
                   <td>{item.quantity}</td>
+                  <td className="text-right">{formatCurrency(item.unit_price)}</td>
                   <td className="text-right">{formatCurrency(item.line_total ?? item.unit_price)}</td>
                 </tr>
               ))}

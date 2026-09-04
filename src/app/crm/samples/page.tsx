@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { receiveSample, moveSample } from './actions'
 import { requireStaff, canSeeCosts } from '@/lib/auth'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function SamplesPage() {
   const profile = await requireStaff()
@@ -43,7 +44,7 @@ export default async function SamplesPage() {
         ))}
       </div>
 
-      <form action={receiveSample} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
+      <form action={asFormAction(receiveSample)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
         <select name="product_id" required className="border rounded-lg px-2 py-2">
           <option value="">Receive product sample</option>
           {(products || []).map((p) => (
@@ -83,7 +84,7 @@ export default async function SamplesPage() {
                   <td className="p-3">{sample.pending_supplier || 0}</td>
                   {showCost && <td className="p-3">{formatCurrency(sample.unit_cost)}</td>}
                   <td className="p-3">
-                    <form action={moveSample} className="grid grid-cols-2 gap-1 text-[11px] min-w-[220px]">
+                    <form action={asFormAction(moveSample)} className="grid grid-cols-2 gap-1 text-[11px] min-w-[220px]">
                       <input type="hidden" name="stock_id" value={sample.id} />
                       <select name="from_holder" className="border rounded px-1 py-1">
                         <option value="office">From office</option>

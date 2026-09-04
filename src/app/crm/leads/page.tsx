@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import { formatCurrency, formatDate, LEAD_STAGE_LABELS } from '@/lib/utils'
+import { formatCurrency, formatDate, LEAD_STAGE_LABELS, oneRelation, asRows } from '@/lib/utils'
 import { TrendingUp, Plus, User } from 'lucide-react'
 
 const STAGE_COLORS: Record<string, string> = {
@@ -12,6 +12,20 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 import { requireStaff, applyOwnerScope } from '@/lib/auth'
+
+type LeadCompany = { id: string; name: string; logo_path?: string | null }
+type LeadContact = { id: string; full_name: string | null; designation?: string | null }
+type LeadOwner = { id: string; full_name: string | null }
+type LeadRow = {
+  id: string
+  stage: string
+  estimated_value?: number | null
+  created_at?: string
+  next_follow_up_at?: string | null
+  company?: LeadCompany | LeadCompany[] | null
+  contact?: LeadContact | LeadContact[] | null
+  owner?: LeadOwner | LeadOwner[] | null
+}
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ view?: string; stage?: string; owner?: string }> }) {
   const profile = await requireStaff()
@@ -33,17 +47,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const { data: owners } = await supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales']).order('full_name')
 
   const stages = ['cold', 'warm', 'hot', 'client', 'regular_client']
-  const groupedLeads = stages.reduce((acc, stage) => {
-    acc[stage] = (leads || []).filter(l => l.stage === stage)
+  const leadRows = asRows<LeadRow>(leads)
+  const groupedLeads = stages.reduce((acc: Record<string, LeadRow[]>, stage: string) => {
+    acc[stage] = leadRows.filter((l: LeadRow) => l.stage === stage)
     return acc
-  }, {} as Record<string, typeof leads>)
+  }, {})
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text)' }}>Leads</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>{leads?.length || 0} leads total</p>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>{leadRows.length} leads total</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
@@ -85,15 +100,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                 <div className="space-y-3">
                   {stageLeads.length === 0 ? (
                     <div className="bg-[var(--color-muted)] rounded-lg p-4 text-center text-sm text-[var(--color-muted-fg)]">No leads</div>
-                  ) : stageLeads.map(lead => (
+                  ) : stageLeads.map((lead: LeadRow) => {
+                    const company = oneRelation(lead.company)
+                    const contact = oneRelation(lead.contact)
+                    return (
                     <Link key={lead.id} href={`/crm/leads/${lead.id}`} className="block bg-white border border-[var(--color-border)] rounded-lg p-4 hover:shadow-sm transition-shadow">
                       <div className="flex items-start justify-between mb-2">
-                        <span className="font-medium text-sm text-[var(--color-text)]">{(lead.company as any)?.name || 'Unknown Company'}</span>
+                        <span className="font-medium text-sm text-[var(--color-text)]">{company?.name || 'Unknown Company'}</span>
                       </div>
-                      {(lead.contact as any)?.full_name && (
+                      {contact?.full_name && (
                         <p className="text-xs text-[var(--color-muted-fg)] flex items-center gap-1 mb-2">
-                          <User size={12} /> {(lead.contact as any).full_name}
-                          {(lead.contact as any).designation && ` · ${(lead.contact as any).designation}`}
+                          <User size={12} /> {contact.full_name}
+                          {contact.designation && ` · ${contact.designation}`}
                         </p>
                       )}
                       {lead.estimated_value && (
@@ -101,7 +119,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                       )}
                       <p className="text-xs text-[var(--color-muted-fg)] mt-2">{formatDate(lead.created_at)}</p>
                     </Link>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -121,22 +140,27 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               </tr>
             </thead>
             <tbody>
-              {!leads?.length ? (
+              {leadRows.length === 0 ? (
                 <tr><td colSpan={6} className="text-center py-12 text-[var(--color-muted-fg)]">No leads found.</td></tr>
-              ) : leads.map(lead => (
+              ) : leadRows.map((lead: LeadRow) => {
+                const company = oneRelation(lead.company)
+                const contact = oneRelation(lead.contact)
+                const owner = oneRelation(lead.owner)
+                return (
                 <tr key={lead.id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-muted)] transition-colors">
                   <td className="px-4 py-3 font-medium">
-                    <Link href={`/crm/leads/${lead.id}`} className="hover:text-[var(--color-primary)]">{(lead.company as any)?.name}</Link>
+                    <Link href={`/crm/leads/${lead.id}`} className="hover:text-[var(--color-primary)]">{company?.name}</Link>
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{(lead.contact as any)?.full_name || '—'}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{contact?.full_name || '—'}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STAGE_COLORS[lead.stage]}`}>{LEAD_STAGE_LABELS[lead.stage]}</span>
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{(lead.owner as any)?.full_name || '—'}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{owner?.full_name || '—'}</td>
                   <td className="px-4 py-3 text-right font-medium">{lead.estimated_value ? formatCurrency(lead.estimated_value) : '—'}</td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{lead.next_follow_up_at ? formatDate(lead.next_follow_up_at) : '—'}</td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import { requireStaff } from '@/lib/auth'
 import { createTask, completeTask } from './actions'
+import { asFormAction } from '@/lib/form-action'
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'high', 2: 'medium', 3: 'low' }
 
@@ -25,7 +26,7 @@ export default async function TasksPage({
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-[var(--color-primary)]">Tasks</h1>
 
-      <form action={createTask} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
+      <form action={asFormAction(createTask)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-4 gap-3 text-xs">
         <input name="title" required placeholder="Task title" className="border rounded-lg px-2 py-2 md:col-span-2" />
         <input name="due_at" type="date" className="border rounded-lg px-2 py-2" />
         <select name="priority" defaultValue="2" className="border rounded-lg px-2 py-2">
@@ -75,7 +76,7 @@ export default async function TasksPage({
                   <td className="p-3 capitalize">{String(task.status || 'open').replace('_', ' ')}</td>
                   <td className="p-3">
                     {task.status !== 'done' && !task.completed_at && (
-                      <form action={completeTask}>
+                      <form action={asFormAction(completeTask)}>
                         <input type="hidden" name="id" value={task.id} />
                         <button className="text-xs underline">Complete</button>
                       </form>

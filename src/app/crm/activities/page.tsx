@@ -3,6 +3,7 @@ import { formatDateTime } from '@/lib/utils'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { logActivity } from './actions'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function ActivitiesPage({
   searchParams,
@@ -41,7 +42,7 @@ export default async function ActivitiesPage({
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-[var(--color-primary)]">Activity Feed</h1>
 
-      <form action={logActivity} className="bg-white border rounded-2xl p-4 grid md:grid-cols-2 gap-3 text-xs">
+      <form action={asFormAction(logActivity)} className="bg-white border rounded-2xl p-4 grid md:grid-cols-2 gap-3 text-xs">
         <input name="title" required placeholder="Activity title" className="border rounded-lg px-2 py-2" />
         <select name="type" className="border rounded-lg px-2 py-2">
           <option value="follow_up">Follow-up</option>

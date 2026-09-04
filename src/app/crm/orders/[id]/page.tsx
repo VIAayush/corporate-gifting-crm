@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
-import { formatCurrency, formatDate, formatDateTime } from '@/lib/utils'
+import { formatCurrency, formatDate, formatDateTime, oneRelation } from '@/lib/utils'
 import {
   advanceOrderStatus,
   assignSupplier,
@@ -22,6 +22,7 @@ import {
   lifecycleIndex,
 } from '@/lib/order-workflow'
 import { ShoppingBag, ChevronRight } from 'lucide-react'
+import { asFormAction } from '@/lib/form-action'
 
 export default async function OrderDetailPage({
   params,
@@ -168,7 +169,7 @@ export default async function OrderDetailPage({
       </div>
 
       {canStage && !isDelivered && (
-        <form action={handOffOrder} className="bg-white p-6 rounded-2xl border border-gray-200 grid md:grid-cols-2 gap-3 text-xs">
+        <form action={asFormAction(handOffOrder)} className="bg-white p-6 rounded-2xl border border-gray-200 grid md:grid-cols-2 gap-3 text-xs">
           <input type="hidden" name="order_id" value={order.id} />
           <h3 className="md:col-span-2 font-bold text-sm">Stage hand-off</h3>
           <label className="space-y-1">
@@ -252,14 +253,23 @@ export default async function OrderDetailPage({
               <th className="p-3">Item</th><th className="p-3 text-right">Qty</th><th className="p-3 text-right">Unit</th><th className="p-3 text-right">Total</th>
             </tr></thead>
             <tbody>
-              {orderItems?.map((item: { id: string; quantity: number; unit_price: number; line_total: number; product?: { name?: string; sku?: string } }) => (
-                <tr key={item.id} className="border-t">
-                  <td className="p-3">{item.product?.name}<div className="font-mono text-[10px] text-gray-400">{item.product?.sku}</div></td>
-                  <td className="p-3 text-right">{item.quantity}</td>
-                  <td className="p-3 text-right">{formatCurrency(item.unit_price)}</td>
-                  <td className="p-3 text-right">{formatCurrency(item.line_total)}</td>
-                </tr>
-              ))}
+              {orderItems?.map((item: {
+                id: string
+                quantity: number
+                unit_price: number
+                line_total: number
+                product?: { name?: string; sku?: string } | { name?: string; sku?: string }[] | null
+              }) => {
+                const product = oneRelation(item.product)
+                return (
+                  <tr key={item.id} className="border-t">
+                    <td className="p-3">{product?.name}<div className="font-mono text-[10px] text-gray-400">{product?.sku}</div></td>
+                    <td className="p-3 text-right">{item.quantity}</td>
+                    <td className="p-3 text-right">{formatCurrency(item.unit_price)}</td>
+                    <td className="p-3 text-right">{formatCurrency(item.line_total)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -276,7 +286,7 @@ export default async function OrderDetailPage({
             {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save supplier</button>}
           </form>
 
-          <form action={assignPrintingVendor} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+          <form action={asFormAction(assignPrintingVendor)} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
             <input type="hidden" name="order_id" value={order.id} />
             <h3 className="font-bold">Printing vendor</h3>
             <select name="printing_vendor_id" defaultValue={order.printing_vendor_id || ''} disabled={!canStage} className="w-full border rounded-lg px-2 py-2 disabled:bg-gray-50">
@@ -296,7 +306,7 @@ export default async function OrderDetailPage({
             {canStage && <button className="px-4 py-2 bg-[#1A3022] text-white rounded-lg">Save shipping</button>}
           </form>
 
-          <form action={recordDelivery} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+          <form action={asFormAction(recordDelivery)} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
             <input type="hidden" name="order_id" value={order.id} />
             <h3 className="font-bold">Dispatch &amp; delivery</h3>
             <label className="block space-y-1">
@@ -318,7 +328,7 @@ export default async function OrderDetailPage({
 
       {tab === 'financials' && showCosts && (
         <div className="grid md:grid-cols-2 gap-6">
-          <form action={saveOrderCosting} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
+          <form action={asFormAction(saveOrderCosting)} className="bg-white p-6 rounded-2xl border space-y-3 text-xs">
             <input type="hidden" name="order_id" value={order.id} />
             <h3 className="font-bold text-sm">Order costing</h3>
             {(

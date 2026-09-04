@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { requireStaff, applyOrderScope, canChangeOrderStage } from '@/lib/auth'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, asRows, oneRelation } from '@/lib/utils'
 import {
   ORDER_LIFECYCLE,
   ORDER_STATUS_LABELS,
@@ -10,6 +10,25 @@ import {
 } from '@/lib/order-workflow'
 import Link from 'next/link'
 import { OrderKanban } from '@/components/orders/order-kanban'
+
+type NamedRef = { id?: string; name?: string | null; full_name?: string | null }
+type ControlOrder = {
+  id: string
+  order_number: string | null
+  order_value: number | null
+  status: string
+  expected_delivery_date: string | null
+  updated_at?: string | null
+  priority?: string | null
+  stage_due_at: string | null
+  assigned_to?: string | null
+  current_department_id?: string | null
+  campaign_id?: string | null
+  company?: NamedRef | NamedRef[] | null
+  assignee?: NamedRef | NamedRef[] | null
+  department?: NamedRef | NamedRef[] | null
+  campaign?: NamedRef | NamedRef[] | null
+}
 
 export default async function OrderControlCenterPage({
   searchParams,
@@ -63,8 +82,9 @@ export default async function OrderControlCenterPage({
   else query = query.order('expected_delivery_date', { ascending: true, nullsFirst: false })
 
   const { data: orders } = await query.limit(200)
+  const orderRows = asRows<ControlOrder>(orders)
 
-  const rows = (orders || []).map((o) => {
+  const rows = orderRows.map((o: ControlOrder) => {
     const health = orderHealth(o.status, o.expected_delivery_date, o.stage_due_at)
     return { ...o, health }
   }).filter((o) => !params.health || o.health === params.health)
@@ -94,15 +114,15 @@ export default async function OrderControlCenterPage({
         {view === 'kanban' && <input type="hidden" name="view" value="kanban" />}
         <select name="client" defaultValue={params.client || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
           <option value="">All clients</option>
-          {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {(companies || []).map((c: { id: string; name: string }) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select name="department" defaultValue={params.department || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
           <option value="">All departments</option>
-          {(departments || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {(departments || []).map((d: { id: string; name: string }) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <select name="employee" defaultValue={params.employee || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
           <option value="">All employees</option>
-          {(staff || []).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          {(staff || []).map((s: { id: string; full_name: string | null }) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
         </select>
         <select name="stage" defaultValue={params.stage || ''} className="text-xs border rounded-lg px-2 py-2 bg-[#FAF7F2]">
           <option value="">All stages</option>
@@ -130,12 +150,12 @@ export default async function OrderControlCenterPage({
         <OrderKanban
           canDrag={canChangeOrderStage(profile.role)}
           orders={rows.map((o) => {
-            const company = Array.isArray(o.company) ? o.company[0] : o.company
-            const assignee = Array.isArray(o.assignee) ? o.assignee[0] : o.assignee
-            const department = Array.isArray(o.department) ? o.department[0] : o.department
+            const company = oneRelation(o.company)
+            const assignee = oneRelation(o.assignee)
+            const department = oneRelation(o.department)
             return {
               id: o.id,
-              order_number: o.order_number,
+              order_number: o.order_number || `ORD-${o.id.slice(0, 6)}`,
               status: o.status,
               order_value: o.order_value,
               expected_delivery_date: o.expected_delivery_date,
@@ -165,15 +185,15 @@ export default async function OrderControlCenterPage({
             </thead>
             <tbody className="divide-y divide-[#EFE9E0]">
               {rows.map((o) => {
-                const company = Array.isArray(o.company) ? o.company[0] : o.company
-                const assignee = Array.isArray(o.assignee) ? o.assignee[0] : o.assignee
-                const department = Array.isArray(o.department) ? o.department[0] : o.department
-                const campaign = Array.isArray(o.campaign) ? o.campaign[0] : o.campaign
+                const company = oneRelation(o.company)
+                const assignee = oneRelation(o.assignee)
+                const department = oneRelation(o.department)
+                const campaign = oneRelation(o.campaign)
                 return (
                   <tr key={o.id} className="hover:bg-[#FAF7F2]">
                     <td className="px-3 py-3">
                       <Link href={`/crm/orders/${o.id}`} className="font-mono font-semibold text-[#1A3022] hover:underline">
-                        {o.order_number}
+                        {o.order_number || `ORD-${o.id.slice(0, 6)}`}
                       </Link>
                     </td>
                     <td className="px-3 py-3">{company?.name || '—'}</td>
