@@ -40,6 +40,11 @@ deploy_full.py
 deploy-all-ready.json
 scripts/_ship.py
 scripts/_ship_log.txt
+scripts/commit-push-giffter.cmd
+write-helper.js
+write_file.py
+generatePages.js
+scripts/collect-deploy-files.py
 
 # vercel
 .vercel

@@ -1,40 +1,83 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireStaff } from '@/lib/auth'
+import { requireStaff, applyOwnerScope } from '@/lib/auth'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { ORDER_STATUS_LABELS, orderHealth, HEALTH_LABELS, HEALTH_STYLES } from '@/lib/order-workflow'
 import Link from 'next/link'
 
-export default async function MyWorkPage() {
+const FILTERS = [
+  { id: 'today', label: 'Today' },
+  { id: 'week', label: 'This week' },
+  { id: 'month', label: 'This month' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'completed', label: 'Completed' },
+] as const
+
+export default async function MyWorkPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ filter?: string }>
+}) {
   const profile = await requireStaff()
+  const { filter = 'today' } = await searchParams
   const supabase = await createClient()
   const today = new Date().toISOString().slice(0, 10)
+  const weekStart = new Date()
+  weekStart.setDate(weekStart.getDate() - 7)
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  const weekIso = weekStart.toISOString().slice(0, 10)
+  const monthIso = monthStart.toISOString().slice(0, 10)
 
-  const [{ data: tasks }, { data: orders }, { data: followUps }] = await Promise.all([
+  let myOrderQuery = supabase
+    .from('orders')
+    .select('id, order_number, status, expected_delivery_date, stage_due_at, order_value, next_action, created_at, company:companies(name)')
+    .order('expected_delivery_date', { ascending: true })
+  if (profile.role === 'sales') {
+    myOrderQuery = myOrderQuery.or(`owner_id.eq.${profile.id},assigned_to.eq.${profile.id}`)
+  } else {
+    myOrderQuery = myOrderQuery.or(`assigned_to.eq.${profile.id},operations_user_id.eq.${profile.id}`)
+  }
+
+  const [{ data: tasks }, { data: orders }, { data: leads }, { data: requirements }, { data: quotations }] = await Promise.all([
     supabase
       .from('tasks')
-      .select('id, title, due_at, status, priority, order_id, completed_at, orders(order_number)')
+      .select('id, title, due_at, status, priority, order_id, completed_at, created_at, orders(order_number)')
       .eq('assigned_to', profile.id)
       .order('due_at', { ascending: true }),
-    supabase
-      .from('orders')
-      .select('id, order_number, status, expected_delivery_date, stage_due_at, order_value, next_action, company:companies(name)')
-      .eq('assigned_to', profile.id)
-      .order('expected_delivery_date', { ascending: true }),
-    supabase
-      .from('activities')
-      .select('id, type, title, notes, created_at')
-      .eq('created_by', profile.id)
-      .order('created_at', { ascending: false })
-      .limit(8),
+    myOrderQuery,
+    applyOwnerScope(supabase.from('leads').select('id, stage, estimated_value, created_at, company:companies(name)').order('created_at', { ascending: false }).limit(20), profile),
+    applyOwnerScope(supabase.from('requirements').select('id, name, status, deadline, created_at').order('created_at', { ascending: false }).limit(20), profile),
+    applyOwnerScope(supabase.from('quotations').select('id, quotation_number, status, total, created_at').order('created_at', { ascending: false }).limit(20), profile),
   ])
 
+  const inRange = (iso?: string | null) => {
+    if (!iso) return filter !== 'overdue' && filter !== 'completed'
+    const d = iso.slice(0, 10)
+    if (filter === 'today') return d === today
+    if (filter === 'week') return d >= weekIso
+    if (filter === 'month') return d >= monthIso
+    return true
+  }
+
   const openTasks = (tasks || []).filter((t) => t.status !== 'done' && !t.completed_at)
-  const todayTasks = openTasks.filter((t) => t.due_at && t.due_at <= today)
-  const upcomingTasks = openTasks.filter((t) => t.due_at && t.due_at > today)
+  const completedTasks = (tasks || []).filter((t) => t.status === 'done' || t.completed_at)
   const overdueTasks = openTasks.filter((t) => t.due_at && t.due_at < today)
-  const completed = (tasks || []).filter((t) => t.status === 'done' || t.completed_at).slice(0, 8)
   const myOrders = orders || []
   const overdueOrders = myOrders.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
+
+  const visibleTasks =
+    filter === 'completed' ? completedTasks :
+    filter === 'overdue' ? overdueTasks :
+    openTasks.filter((t) => inRange(t.due_at || t.created_at))
+
+  const visibleOrders =
+    filter === 'completed' ? myOrders.filter((o) => o.status === 'delivered') :
+    filter === 'overdue' ? overdueOrders :
+    myOrders.filter((o) => inRange(o.created_at || o.expected_delivery_date))
+
+  const visibleLeads = (leads || []).filter((l) => filter === 'completed' ? ['client', 'regular_client'].includes(l.stage) : inRange(l.created_at))
+  const visibleReqs = (requirements || []).filter((r) => filter === 'completed' ? r.status !== 'active' : inRange(r.created_at || r.deadline))
+  const visibleQuotes = (quotations || []).filter((q) => filter === 'completed' ? q.status === 'accepted' : inRange(q.created_at))
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <section className="bg-white rounded-2xl border border-[#E5DFD5] p-5 space-y-3">
@@ -47,13 +90,33 @@ export default async function MyWorkPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-[var(--color-primary)]">My Work</h1>
-        <p className="text-xs text-[#7A7267] mt-1">Assigned orders, tasks, and follow-ups for {profile.full_name || profile.email}.</p>
+        <p className="text-xs text-[#7A7267] mt-1">Assigned work for {profile.full_name || profile.email}.</p>
       </div>
 
-      <Section title="Today">
-        <p className="text-[11px] uppercase tracking-wider text-[#7A7267]">Tasks due today or earlier</p>
-        {(todayTasks.length === 0 && myOrders.length === 0) && <p className="text-sm text-gray-500">Nothing due right now.</p>}
-        {todayTasks.map((t) => {
+      <div className="flex flex-wrap gap-2">
+        {FILTERS.map((f) => (
+          <Link
+            key={f.id}
+            href={`/crm/my-work?filter=${f.id}`}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+              filter === f.id ? 'bg-[#1A3022] text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {f.label}
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Leads</p><p className="text-lg font-semibold">{(leads || []).length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Requirements</p><p className="text-lg font-semibold">{(requirements || []).length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Quotations</p><p className="text-lg font-semibold">{(quotations || []).length}</p></div>
+        <div className="bg-white border rounded-xl p-3"><p className="text-[10px] uppercase text-[#7A7267]">Orders</p><p className="text-lg font-semibold">{myOrders.length}</p></div>
+      </div>
+
+      <Section title="My tasks">
+        {visibleTasks.length === 0 && <p className="text-sm text-gray-500">No tasks in this view.</p>}
+        {visibleTasks.map((t) => {
           const ord = Array.isArray(t.orders) ? t.orders[0] : t.orders
           return (
             <Link key={t.id} href={t.order_id ? `/crm/orders/${t.order_id}` : '/crm/tasks'} className="block p-3 rounded-xl bg-[#FAF7F2] border border-[#EFE9E0]">
@@ -62,15 +125,18 @@ export default async function MyWorkPage() {
             </Link>
           )
         })}
-        {myOrders.slice(0, 6).map((o) => {
+      </Section>
+
+      <Section title="My orders">
+        {visibleOrders.length === 0 && <p className="text-sm text-gray-500">No orders in this view.</p>}
+        {visibleOrders.map((o) => {
           const company = Array.isArray(o.company) ? o.company[0] : o.company
           const health = orderHealth(o.status, o.expected_delivery_date, o.stage_due_at)
           return (
             <Link key={o.id} href={`/crm/orders/${o.id}`} className="flex items-center justify-between p-3 rounded-xl border border-[#EFE9E0] hover:bg-[#FAF7F2]">
               <div>
                 <p className="text-sm font-semibold font-mono">{o.order_number}</p>
-                <p className="text-[11px] text-[#7A7267]">{company?.name} · {ORDER_STATUS_LABELS[o.status] || o.status}</p>
-                {o.next_action && <p className="text-[11px] mt-1">{o.next_action}</p>}
+                <p className="text-[11px] text-[#7A7267]">{company?.name} · {ORDER_STATUS_LABELS[o.status] || o.status} · {formatCurrency(o.order_value)}</p>
               </div>
               <span className={`text-[10px] px-2 py-0.5 rounded-full ${HEALTH_STYLES[health]}`}>{HEALTH_LABELS[health]}</span>
             </Link>
@@ -78,40 +144,37 @@ export default async function MyWorkPage() {
         })}
       </Section>
 
-      <Section title="Upcoming">
-        {upcomingTasks.length === 0 && <p className="text-sm text-gray-500">No upcoming tasks.</p>}
-        {upcomingTasks.map((t) => (
-          <div key={t.id} className="text-sm flex justify-between border-b border-[#EFE9E0] py-2">
-            <span>{t.title}</span>
-            <span className="text-[#7A7267]">{formatDate(t.due_at)}</span>
-          </div>
-        ))}
-      </Section>
-
-      <Section title="Overdue">
-        {overdueTasks.length === 0 && overdueOrders.length === 0 && <p className="text-sm text-gray-500">No overdue work.</p>}
-        {overdueOrders.map((o) => (
-          <Link key={o.id} href={`/crm/orders/${o.id}`} className="block text-sm text-red-800 py-1">{o.order_number} · {formatCurrency(o.order_value)}</Link>
-        ))}
-        {overdueTasks.map((t) => (
-          <p key={t.id} className="text-sm text-red-800">{t.title} · {formatDate(t.due_at)}</p>
-        ))}
-      </Section>
-
-      <Section title="Completed">
-        {completed.length === 0 && <p className="text-sm text-gray-500">No recently completed tasks.</p>}
-        {completed.map((t) => (
-          <p key={t.id} className="text-sm text-[#7A7267]">{t.title}</p>
-        ))}
-        {(followUps || []).length > 0 && (
-          <div className="pt-3">
-            <p className="text-[11px] uppercase text-[#7A7267] mb-2">Recent follow-ups</p>
-            {(followUps || []).map((a) => (
-              <p key={a.id} className="text-xs text-[#5A5248] py-1">{a.type || 'note'} · {a.title || a.notes || ''}</p>
+      {(profile.role === 'sales' || profile.role === 'admin' || profile.role === 'management') && (
+        <>
+          <Section title="My leads">
+            {visibleLeads.length === 0 && <p className="text-sm text-gray-500">No leads in this view.</p>}
+            {visibleLeads.map((l: any) => {
+              const company = Array.isArray(l.company) ? l.company[0] : l.company
+              return (
+                <Link key={l.id} href={`/crm/leads/${l.id}`} className="block text-sm py-1 hover:underline">
+                  {company?.name || 'Lead'} · {l.stage} · {formatCurrency(l.estimated_value)}
+                </Link>
+              )
+            })}
+          </Section>
+          <Section title="My requirements">
+            {visibleReqs.length === 0 && <p className="text-sm text-gray-500">No requirements in this view.</p>}
+            {visibleReqs.map((r) => (
+              <Link key={r.id} href={`/crm/requirements/${r.id}`} className="block text-sm py-1 hover:underline">
+                {r.name} · {r.status}
+              </Link>
             ))}
-          </div>
-        )}
-      </Section>
+          </Section>
+          <Section title="My quotations">
+            {visibleQuotes.length === 0 && <p className="text-sm text-gray-500">No quotations in this view.</p>}
+            {visibleQuotes.map((q) => (
+              <Link key={q.id} href={`/crm/quotations/${q.id}`} className="block text-sm py-1 hover:underline">
+                {q.quotation_number} · {q.status} · {formatCurrency(q.total)}
+              </Link>
+            ))}
+          </Section>
+        </>
+      )}
     </div>
   )
 }

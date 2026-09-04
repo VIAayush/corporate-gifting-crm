@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
 import { createTask, completeTask } from './actions'
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'high', 2: 'medium', 3: 'low' }
@@ -10,13 +10,12 @@ export default async function TasksPage({
 }: {
   searchParams: Promise<{ tab?: string }>
 }) {
+  const profile = await requireStaff()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const { tab = 'my_tasks' } = await searchParams
   let query = supabase.from('tasks').select('*, assignee:profiles!assigned_to(full_name)').order('due_at', { ascending: true })
-  if (tab === 'my_tasks') query = query.eq('assigned_to', user.id)
+  if (tab === 'my_tasks' || profile.role === 'sales') query = query.eq('assigned_to', profile.id)
   const [{ data: tasks }, { data: team }] = await Promise.all([
     query,
     supabase.from('profiles').select('id, full_name').not('role', 'in', '(client_admin,client_user)').order('full_name'),
@@ -34,7 +33,7 @@ export default async function TasksPage({
           <option value="2">Medium</option>
           <option value="3">Low</option>
         </select>
-        <select name="assigned_to" defaultValue={user.id} className="border rounded-lg px-2 py-2 md:col-span-2">
+        <select name="assigned_to" defaultValue={profile.id} className="border rounded-lg px-2 py-2 md:col-span-2">
           {(team || []).map((p) => (
             <option key={p.id} value={p.id}>{p.full_name}</option>
           ))}
@@ -45,7 +44,9 @@ export default async function TasksPage({
 
       <div className="flex gap-4 border-b">
         <a href="?tab=my_tasks" className={`pb-2 px-1 text-sm ${tab === 'my_tasks' ? 'font-semibold border-b-2 border-[#1A3022]' : 'text-gray-500'}`}>My Tasks</a>
-        <a href="?tab=all_tasks" className={`pb-2 px-1 text-sm ${tab === 'all_tasks' ? 'font-semibold border-b-2 border-[#1A3022]' : 'text-gray-500'}`}>All Tasks</a>
+        {(profile.role === 'admin' || profile.role === 'management' || profile.role === 'operations') && (
+          <a href="?tab=all_tasks" className={`pb-2 px-1 text-sm ${tab === 'all_tasks' ? 'font-semibold border-b-2 border-[#1A3022]' : 'text-gray-500'}`}>All Tasks</a>
+        )}
       </div>
 
       <div className="bg-white rounded-lg border overflow-hidden">

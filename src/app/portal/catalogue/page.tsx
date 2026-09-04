@@ -169,7 +169,7 @@ export default async function PortalCataloguePage({
           <option value="price_low">Price: low to high</option>
           <option value="price_high">Price: high to low</option>
         </select>
-        <button type="submit" className="px-4 py-2 text-sm font-medium rounded-md bg-[var(--color-primary)] text-white hover:opacity-90">
+        <button type="submit" className="px-4 py-2 text-sm font-medium rounded-md bg-[var(--color-primary)] text-white hover:text-white hover:opacity-90">
           Apply
         </button>
       </form>

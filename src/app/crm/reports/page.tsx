@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, ORDER_STATUSES, ORDER_STATUS_LABELS } from '@/lib/utils'
-import { redirect } from 'next/navigation'
+import { requireStaff, canSeeFinance } from '@/lib/auth'
 import Link from 'next/link'
 
 export default async function ReportsPage({
@@ -8,22 +8,24 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ tab?: string }>
 }) {
+  const profile = await requireStaff(['admin', 'management', 'accounts'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
-  const { tab = 'sales' } = await searchParams
+  const requested = (await searchParams).tab || (profile.role === 'accounts' ? 'finance' : 'sales')
+  const tab = requested
 
   const [
     { data: orders },
     { data: invoices },
     { data: leads },
     { data: samples },
+    { data: gstRows },
   ] = await Promise.all([
     supabase.from('orders').select('order_value, status, created_at'),
     supabase.from('invoices').select('amount, status'),
     supabase.from('leads').select('stage'),
     supabase.from('sample_stock').select('in_office, with_client, pending_supplier, with_team, unit_cost, products(name, sku)'),
+    supabase.from('invoices').select('id, invoice_number, amount, status, invoice_date, company:companies(name, gst_number)').order('invoice_date', { ascending: false }).limit(50),
   ])
 
   const bookedStatuses = new Set([
@@ -83,7 +85,12 @@ export default async function ReportsPage({
       return acc + qty * Number(s.unit_cost || 0)
     }, 0) || 0
 
-  const tabs = ['sales', 'orders', 'finance', 'samples'] as const
+  const tabs =
+    profile.role === 'accounts'
+      ? ['finance', 'gst']
+      : canSeeFinance(profile.role)
+        ? ['sales', 'orders', 'finance', 'gst', 'samples']
+        : ['sales', 'orders', 'samples']
 
   return (
     <div className="p-6">
@@ -258,6 +265,56 @@ export default async function ReportsPage({
             </Link>{' '}
             page.
           </p>
+        </div>
+      )}
+      {tab === 'gst' && canSeeFinance(profile.role) && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+              <p className="text-sm text-gray-500 mb-1">Invoiced (taxable)</p>
+              <p className="text-2xl font-bold">{formatCurrency(totalInvoiced)}</p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+              <p className="text-sm text-gray-500 mb-1">GST @ 18% (estimated)</p>
+              <p className="text-2xl font-bold">{formatCurrency(totalInvoiced * 0.18)}</p>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+              <p className="text-sm text-gray-500 mb-1">Collected</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(collected)}</p>
+            </div>
+          </div>
+          <div className="bg-white rounded-lg border overflow-x-auto">
+            <table className="w-full text-xs min-w-[640px]">
+              <thead className="bg-gray-50 text-left text-gray-500">
+                <tr>
+                  <th className="p-3">Invoice</th>
+                  <th className="p-3">Company</th>
+                  <th className="p-3">GSTIN</th>
+                  <th className="p-3">Date</th>
+                  <th className="p-3 text-right">Amount</th>
+                  <th className="p-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(gstRows || []).map((row: any) => {
+                  const company = Array.isArray(row.company) ? row.company[0] : row.company
+                  return (
+                    <tr key={row.id} className="border-t">
+                      <td className="p-3 font-mono">{row.invoice_number}</td>
+                      <td className="p-3">{company?.name || '—'}</td>
+                      <td className="p-3 font-mono">{company?.gst_number || '—'}</td>
+                      <td className="p-3">{row.invoice_date || '—'}</td>
+                      <td className="p-3 text-right">{formatCurrency(row.amount)}</td>
+                      <td className="p-3 capitalize">{row.status}</td>
+                    </tr>
+                  )
+                })}
+                {(!gstRows || gstRows.length === 0) && (
+                  <tr><td colSpan={6} className="p-6 text-center text-gray-500">No invoices yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

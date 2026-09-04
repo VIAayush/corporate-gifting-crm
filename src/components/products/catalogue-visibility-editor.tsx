@@ -3,8 +3,9 @@
 import { useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { saveCatalogueVisibility } from '@/app/crm/products/actions'
+import { CompanyAvatar } from '@/components/ui/avatar'
 
-type Company = { id: string; name: string }
+type Company = { id: string; name: string; logo_path?: string | null }
 
 export function CatalogueVisibilityEditor({
   productId,
@@ -96,6 +97,7 @@ export function CatalogueVisibilityEditor({
                   checked={selected.includes(company.id)}
                   onChange={() => toggle(company.id)}
                 />
+                <CompanyAvatar name={company.name} logoPath={company.logo_path} size="sm" />
                 <span className="font-medium text-gray-800">{company.name}</span>
               </label>
             ))}

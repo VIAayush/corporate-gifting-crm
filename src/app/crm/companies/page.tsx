@@ -1,20 +1,21 @@
 import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
 import { CompanyAvatar } from '@/components/ui/avatar';
 import { Search } from 'lucide-react';
 
+import { requireStaff, applyCompanyScope } from '@/lib/auth'
+
 export default async function Companies(props: { searchParams: Promise<{ q?: string; status?: string }> }) {
+  const profile = await requireStaff()
   const searchParams = await props.searchParams;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect('/login');
 
   const q = searchParams?.q || '';
   const status = searchParams?.status || '';
 
-  let query = supabase.from('companies').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false }).limit(25);
+  let query = supabase.from('companies').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false }).limit(50);
+  query = applyCompanyScope(query, profile)
   
   if (q) query = query.ilike('name', `%${q}%`);
   if (status) query = query.eq('status', status);
@@ -32,7 +33,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
         </div>
         <Link
           href="/crm/companies/new"
-          className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 self-start"
+          className="bg-[var(--color-primary)] text-white hover:text-white px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 self-start"
         >
           Add Company
         </Link>
@@ -53,7 +54,7 @@ export default async function Companies(props: { searchParams: Promise<{ q?: str
         </form>
       </div>
 
-      <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="bg-white border rounded-lg overflow-x-auto">
         {companies && companies.length > 0 ? (
           <table className="w-full text-left border-collapse">
             <thead>

@@ -8,7 +8,7 @@ import {
   Package, Image as ImageIcon, FileText, ShoppingBag, KanbanSquare,
   Truck, Printer, Package2, Receipt, CreditCard, ArrowDownToLine,
   BarChart3, Activity, UserCog, Settings, ShieldCheck, LogOut,
-  ListTodo, Landmark, BadgeCheck
+  ListTodo, Landmark, BadgeCheck, Megaphone, BookOpen, Target
 } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import type { Role } from '@/lib/types';
@@ -16,6 +16,7 @@ import type { Role } from '@/lib/types';
 interface SidebarProps {
   role: Role;
   user?: { name: string; email: string };
+  onNavigate?: () => void;
 }
 
 type NavItem = { label: string; href: string; matchPrefix: string; icon: typeof LayoutDashboard };
@@ -44,13 +45,14 @@ const navGroups: NavGroup[] = [
     roles: ['admin', 'sales', 'management'],
     items: [
       { label: 'Leads', href: '/crm/leads', matchPrefix: '/crm/leads', icon: TrendingUp },
-      { label: 'Campaigns', href: '/crm/campaigns', matchPrefix: '/crm/campaigns', icon: FolderGit2 },
+      { label: 'Goal Tracker', href: '/crm/goals', matchPrefix: '/crm/goals', icon: Target },
       { label: 'Requirements', href: '/crm/requirements', matchPrefix: '/crm/requirements', icon: ClipboardList },
       { label: 'Products', href: '/crm/products', matchPrefix: '/crm/products', icon: Package },
-      { label: 'Mockups', href: '/crm/mockups', matchPrefix: '/crm/mockups', icon: ImageIcon },
+      { label: 'Mockup Storage', href: '/crm/mockups', matchPrefix: '/crm/mockups', icon: ImageIcon },
       { label: 'Quotations', href: '/crm/quotations', matchPrefix: '/crm/quotations', icon: FileText },
       { label: 'Orders', href: '/crm/orders', matchPrefix: '/crm/orders', icon: ShoppingBag },
-      { label: 'Samples', href: '/crm/samples', matchPrefix: '/crm/samples', icon: Package2 },
+      { label: 'Sample Management', href: '/crm/samples', matchPrefix: '/crm/samples', icon: Package2 },
+      { label: 'Campaigns', href: '/crm/campaigns', matchPrefix: '/crm/campaigns', icon: FolderGit2 },
       { label: 'Activities', href: '/crm/activities', matchPrefix: '/crm/activities', icon: Activity },
     ]
   },
@@ -58,7 +60,7 @@ const navGroups: NavGroup[] = [
     label: 'OPERATIONS',
     roles: ['admin', 'operations', 'management'],
     items: [
-      { label: 'Order Control', href: '/crm/order-management', matchPrefix: '/crm/order-management', icon: KanbanSquare },
+      { label: 'Order Management', href: '/crm/order-management', matchPrefix: '/crm/order-management', icon: KanbanSquare },
       { label: 'Orders', href: '/crm/orders', matchPrefix: '/crm/orders', icon: ShoppingBag },
       { label: 'Department', href: '/crm/department', matchPrefix: '/crm/department', icon: BadgeCheck },
       { label: 'Suppliers', href: '/crm/suppliers', matchPrefix: '/crm/suppliers', icon: Truck },
@@ -75,6 +77,7 @@ const navGroups: NavGroup[] = [
       { label: 'Payments', href: '/crm/payments', matchPrefix: '/crm/payments', icon: CreditCard },
       { label: 'Receivables', href: '/crm/receivables', matchPrefix: '/crm/receivables', icon: ArrowDownToLine },
       { label: 'Payables', href: '/crm/payables', matchPrefix: '/crm/payables', icon: Landmark },
+      { label: 'GST Reports', href: '/crm/reports?tab=gst', matchPrefix: '/crm/reports', icon: BarChart3 },
     ]
   },
   {
@@ -82,23 +85,30 @@ const navGroups: NavGroup[] = [
     roles: ['admin', 'management'],
     items: [
       { label: 'Reports', href: '/crm/reports', matchPrefix: '/crm/reports', icon: BarChart3 },
-      { label: 'Goals', href: '/crm/goals', matchPrefix: '/crm/goals', icon: TrendingUp },
       { label: 'Reviews', href: '/crm/reviews', matchPrefix: '/crm/reviews', icon: BadgeCheck },
       { label: 'Activities', href: '/crm/activities', matchPrefix: '/crm/activities', icon: Activity },
+      { label: 'Audit Log', href: '/crm/audit-log', matchPrefix: '/crm/audit-log', icon: ShieldCheck },
+    ]
+  },
+  {
+    label: 'SYSTEM',
+    roles: ['admin', 'sales', 'operations', 'accounts', 'management'],
+    items: [
+      { label: 'Announcements', href: '/crm/announcements', matchPrefix: '/crm/announcements', icon: Megaphone },
+      { label: 'Knowledge Center', href: '/crm/knowledge', matchPrefix: '/crm/knowledge', icon: BookOpen },
     ]
   },
   {
     label: 'ADMIN',
     roles: ['admin'],
     items: [
-      { label: 'Team', href: '/crm/team', matchPrefix: '/crm/team', icon: UserCog },
+      { label: 'My Team', href: '/crm/team', matchPrefix: '/crm/team', icon: UserCog },
       { label: 'Settings', href: '/crm/settings', matchPrefix: '/crm/settings', icon: Settings },
-      { label: 'Audit log', href: '/crm/audit-log', matchPrefix: '/crm/audit-log', icon: ShieldCheck },
     ]
   }
 ];
 
-export function Sidebar({ role, user }: SidebarProps) {
+export function Sidebar({ role, user, onNavigate }: SidebarProps) {
   const pathname = usePathname();
 
   const displayName = user?.name || (role === 'admin' ? 'Asha Menon' : 'User');
@@ -113,7 +123,7 @@ export function Sidebar({ role, user }: SidebarProps) {
               GIFFTER
             </h1>
             <p className="text-[10px] uppercase tracking-[0.2em] font-semibold text-[#8B9E92] mt-0.5">
-              GIFT OPERATIONS
+              Corporate Gifting Platform
             </p>
           </Link>
         </div>
@@ -131,8 +141,9 @@ export function Sidebar({ role, user }: SidebarProps) {
                     const isActive = pathname === item.href || (item.matchPrefix !== '/crm/dashboard' && pathname.startsWith(item.matchPrefix));
                     return (
                       <Link
-                        key={item.href}
+                        key={`${item.href}-${item.label}`}
                         href={item.href}
+                        onClick={onNavigate}
                         className={`flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-all font-medium ${
                           isActive
                             ? 'bg-[#274433] text-[#FAF7F2] font-semibold shadow-sm'

@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
@@ -15,18 +14,20 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-gray-100 text-gray-800',
 }
 
+import { requireStaff, applyOrderScope } from '@/lib/auth'
+
 export default async function OrdersPage(props: { searchParams: Promise<{ status?: string }> }) {
+  const profile = await requireStaff()
   const searchParams = await props.searchParams
   const statusFilter = searchParams.status || 'all'
   
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   let query = supabase
     .from('orders')
     .select('*, company:companies(id, name), owner:profiles(id, full_name)')
     .order('created_at', { ascending: false })
+  query = applyOrderScope(query, profile)
 
   if (statusFilter !== 'all') {
     query = query.eq('status', statusFilter)
@@ -56,7 +57,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
         ))}
       </div>
 
-      <div className="bg-white rounded-lg border overflow-hidden">
+      <div className="bg-white rounded-lg border overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b">
             <tr>

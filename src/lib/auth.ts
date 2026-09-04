@@ -52,12 +52,37 @@ export function isOpsStaff(role: Role) {
   return role === "admin" || role === "operations"
 }
 
-export function applyOrderScope(query: any, profile: ProfileSession) {
-  if (profile.role === "admin" || profile.role === "management" || profile.role === "sales" || profile.role === "accounts") {
+/** Company-wide sales pipeline: admin and management only. */
+export function seesAllSalesRecords(profile: ProfileSession) {
+  return profile.role === "admin" || profile.role === "management"
+}
+
+export function applyOwnerScope(query: any, profile: ProfileSession, column = "owner_id") {
+  if (seesAllSalesRecords(profile)) return query
+  return query.eq(column, profile.id)
+}
+
+export function applyCompanyScope(query: any, profile: ProfileSession) {
+  if (
+    profile.role === "admin" ||
+    profile.role === "management" ||
+    profile.role === "accounts" ||
+    profile.role === "operations"
+  ) {
     return query
   }
+  return query.eq("owner_id", profile.id)
+}
+
+export function applyOrderScope(query: any, profile: ProfileSession) {
+  if (profile.role === "admin" || profile.role === "management" || profile.role === "accounts") {
+    return query
+  }
+  if (profile.role === "sales") {
+    return query.or(`owner_id.eq.${profile.id},assigned_to.eq.${profile.id}`)
+  }
   if (profile.role === "operations") {
-    const parts = [`assigned_to.eq.${profile.id}`]
+    const parts = [`assigned_to.eq.${profile.id}`, `operations_user_id.eq.${profile.id}`]
     if (profile.department_id) parts.push(`current_department_id.eq.${profile.department_id}`)
     return query.or(parts.join(","))
   }

@@ -1,18 +1,28 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { redirect } from 'next/navigation'
 import { createGoal } from './actions'
+import { requireStaff } from '@/lib/auth'
+import { applyOrderScope } from '@/lib/auth'
 
 export default async function GoalsPage() {
+  const profile = await requireStaff(['admin', 'management', 'sales'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
-  const [{ data: goals }, { data: orders }, { data: team }] = await Promise.all([
-    supabase.from('goals').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false }),
+  let goalsQuery = supabase.from('goals').select('*, owner:profiles!owner_id(full_name)').order('created_at', { ascending: false })
+  if (profile.role === 'sales') {
+    goalsQuery = goalsQuery.or(`owner_id.eq.${profile.id},owner_id.is.null`)
+  }
+
+  let orderQuery = applyOrderScope(
     supabase.from('orders').select('order_value, created_at, owner_id, status').in('status', [
       'created', 'confirmed', 'in_progress', 'procurement', 'printing', 'quality_check', 'ready_to_dispatch', 'dispatched', 'delivered',
     ]),
+    profile
+  )
+
+  const [{ data: goals }, { data: orders }, { data: team }] = await Promise.all([
+    goalsQuery,
+    orderQuery,
     supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales', 'management']).order('full_name'),
   ])
 
@@ -39,8 +49,9 @@ export default async function GoalsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-[var(--color-primary)]">Goals</h1>
+      <h1 className="text-2xl font-bold text-[var(--color-primary)]">Goal Tracker</h1>
 
+      {(profile.role === 'admin' || profile.role === 'management') && (
       <form action={createGoal} className="bg-white border rounded-2xl p-4 grid md:grid-cols-3 gap-3 text-xs">
         <input name="title" required placeholder="Goal title" className="border rounded-lg px-2 py-2" />
         <select name="metric" className="border rounded-lg px-2 py-2">
@@ -60,8 +71,9 @@ export default async function GoalsPage() {
             <option key={p.id} value={p.id}>{p.full_name}</option>
           ))}
         </select>
-        <button className="bg-[#1A3022] text-white rounded-lg font-semibold md:col-span-3 py-2">Add goal</button>
+        <button className="bg-[#1A3022] text-white hover:text-white rounded-lg font-semibold md:col-span-3 py-2">Add goal</button>
       </form>
+      )}
 
       <div className="grid md:grid-cols-2 gap-6">
         {goalsWithProgress?.map((goal) => {

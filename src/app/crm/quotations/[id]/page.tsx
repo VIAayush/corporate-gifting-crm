@@ -21,7 +21,7 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
       requirement:requirements(id, name)
     `)
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
   if (!quote) notFound()
 
@@ -123,7 +123,7 @@ export default async function QuotationDetailPage({ params }: { params: Promise<
           {linkedOrder && (
             <Link
               href={`/crm/orders/${linkedOrder.id}`}
-              className="px-4 py-2 bg-[#1A3022] hover:opacity-90 text-white rounded-lg text-xs font-semibold shadow-sm inline-flex items-center gap-1.5"
+              className="px-4 py-2 bg-[#1A3022] hover:opacity-90 hover:text-white text-white rounded-lg text-xs font-semibold shadow-sm inline-flex items-center gap-1.5"
             >
               <ArrowRight size={14} /> View order {linkedOrder.order_number}
             </Link>

@@ -11,7 +11,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   if (!user) redirect('/login')
 
   const [{ data: campaign }, { data: offerings }, { data: products }, { data: selections }] = await Promise.all([
-    supabase.from('campaigns').select('*, company:companies(id, name)').eq('id', id).single(),
+    supabase.from('campaigns').select('*, company:companies(id, name)').eq('id', id).maybeSingle(),
     supabase.from('campaign_products').select('*, product:products(id, name, sku, price)').eq('campaign_id', id).order('display_order'),
     supabase.from('products').select('id, name, sku, price').eq('status', 'active').order('name').limit(80),
     supabase.from('client_product_selections').select('*, selector:profiles!user_id(full_name, email), offering:campaign_products(display_name)').eq('campaign_id', id).order('created_at', { ascending: false }),

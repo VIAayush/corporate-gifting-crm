@@ -1,17 +1,18 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency } from '@/lib/utils'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
 import { updateProduct } from '../actions'
 import { Globe, Lock, EyeOff } from 'lucide-react'
 import { ProductImageEditor } from '@/components/products/product-image-editor'
 import { CatalogueVisibilityEditor } from '@/components/products/catalogue-visibility-editor'
+import { requireStaff, canSeeCosts } from '@/lib/auth'
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const profile = await requireStaff(['admin', 'sales', 'management', 'operations'])
+  const showCost = canSeeCosts(profile.role)
   const { id } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const [
     { data: product },
@@ -21,11 +22,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     { data: allCompanies },
     { data: accessRecords },
   ] = await Promise.all([
-    supabase.from('products').select('*, category:categories(id, name), brand:brands(id, name), supplier:suppliers(id, name)').eq('id', id).single(),
+    supabase.from('products').select('*, category:categories(id, name), brand:brands(id, name), supplier:suppliers(id, name)').eq('id', id).maybeSingle(),
     supabase.from('categories').select('id, name').order('name'),
     supabase.from('brands').select('id, name').order('name'),
     supabase.from('suppliers').select('id, name').order('name'),
-    supabase.from('companies').select('id, name').eq('status', 'active').order('name'),
+    supabase.from('companies').select('id, name, logo_path').eq('status', 'active').order('name'),
     supabase.from('company_product_access').select('*, company:companies(id, name, city)').eq('product_id', id),
   ])
 
@@ -84,10 +85,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               <p className="text-[10px] text-gray-400 uppercase font-semibold">Retail Price</p>
               <p className="text-xl font-bold text-[#4A235A]">{formatCurrency(product.price)}</p>
             </div>
+            {showCost && (
             <div>
               <p className="text-[10px] text-gray-400 uppercase font-semibold">Supplier Cost</p>
               <p className="text-lg font-semibold text-gray-700">{formatCurrency(product.supplier_cost)}</p>
             </div>
+            )}
             <div>
               <p className="text-[10px] text-gray-400 uppercase font-semibold">Min Order Qty</p>
               <p className="text-lg font-semibold text-gray-900">{product.moq || 1} units</p>
@@ -153,6 +156,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg"
                 />
               </div>
+              {showCost && (
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Cost (?)</label>
                 <input
@@ -163,6 +167,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg"
                 />
               </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">MOQ</label>
                 <input
@@ -238,6 +243,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           </form>
         </div>
 
+        {profile.role === 'admin' ? (
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
           <CatalogueVisibilityEditor
             productId={product.id}
@@ -246,6 +252,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             grantedIds={grantedCompanyIds}
           />
         </div>
+        ) : (
+        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <h2 className="text-base font-bold text-gray-900 mb-2">Catalogue visibility</h2>
+          <p className="text-xs text-gray-500">Only admin can change which companies see this product.</p>
+        </div>
+        )}
       </div>
     </div>
   )

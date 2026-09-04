@@ -1,8 +1,7 @@
 import React from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { Sidebar } from '@/components/layout/sidebar';
-import { Topbar } from '@/components/layout/topbar';
+import { CrmFrame } from '@/components/layout/crm-frame';
 import type { Role } from '@/lib/types';
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
@@ -37,14 +36,12 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     .limit(20);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F4EFE6]">
-      <Sidebar role={profile.role as Role} user={{ name: displayName, email: user.email || '' }} />
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-        <Topbar user={{ name: displayName, email: user.email || '' }} notifications={notifications || []} />
-        <main className="flex-1 overflow-y-auto bg-[#F4EFE6]">
-          {children}
-        </main>
-      </div>
-    </div>
+    <CrmFrame
+      role={profile.role as Role}
+      user={{ name: displayName, email: user.email || '' }}
+      notifications={notifications || []}
+    >
+      {children}
+    </CrmFrame>
   );
 }

@@ -1,30 +1,36 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDateTime } from '@/lib/utils'
-import { redirect } from 'next/navigation'
+import { requireStaff } from '@/lib/auth'
+import { createAnnouncement } from './actions'
 
 export default async function AnnouncementsPage() {
+  const profile = await requireStaff()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const canPost = profile.role === 'admin' || profile.role === 'management'
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  const isAdmin = profile?.role === 'admin'
-
-  const { data: announcements } = await supabase.from('announcements').select('*, author:created_by(full_name)').order('created_at', { ascending: false })
+  const { data: announcements } = await supabase
+    .from('announcements')
+    .select('*, author:created_by(full_name)')
+    .order('created_at', { ascending: false })
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-[var(--color-primary)]">Announcements</h1>
-        {isAdmin && (
-          <button className="px-4 py-2 bg-[var(--color-primary)] text-white rounded font-medium hover:opacity-90 text-sm">
-            New Announcement
-          </button>
-        )}
       </div>
-      
+
+      {canPost && (
+        <form action={createAnnouncement} className="bg-white rounded-lg border border-[var(--color-border)] p-4 mb-6 space-y-3">
+          <input name="title" required placeholder="Announcement title" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <textarea name="body" required rows={3} placeholder="Message" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <button type="submit" className="px-4 py-2 bg-[var(--color-primary)] text-white hover:text-white rounded font-medium hover:opacity-90 text-sm">
+            Post announcement
+          </button>
+        </form>
+      )}
+
       <div className="flex flex-col gap-6">
-        {announcements?.map(ann => (
+        {announcements?.map((ann: any) => (
           <div key={ann.id} className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] p-6 shadow-sm">
             <div className="flex justify-between items-start mb-4">
               <h2 className="text-xl font-bold text-gray-900">{ann.title}</h2>

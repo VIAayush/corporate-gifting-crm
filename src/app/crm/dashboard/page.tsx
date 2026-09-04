@@ -1,28 +1,66 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireStaff, canSeeFinance, applyOrderScope } from '@/lib/auth'
-import { formatCurrency } from '@/lib/utils'
+import { requireStaff, canSeeFinance, applyOrderScope, applyOwnerScope, applyCompanyScope, seesAllSalesRecords } from '@/lib/auth'
+import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { ORDER_LIFECYCLE, ORDER_STATUS_LABELS, orderHealth } from '@/lib/order-workflow'
+import { entityHref, describeAudit } from '@/lib/entity-href'
 import Link from 'next/link'
 
 function Card({ label, value, href, warn }: { label: string; value: string | number; href?: string; warn?: boolean }) {
   const inner = (
-    <div className={`rounded-2xl border p-5 ${warn ? 'bg-red-50 border-red-100' : 'bg-white border-[#E5DFD5]'}`}>
-      <span className="text-[11px] font-semibold tracking-wider text-[#7A7267] uppercase">{label}</span>
-      <p className="font-serif text-2xl text-[#1C1917] mt-3">{value}</p>
+    <div className={`rounded-xl border p-4 ${warn ? 'bg-red-50 border-red-100' : 'bg-white border-[#E5DFD5]'}`}>
+      <span className="text-[10px] font-semibold tracking-wider text-[#7A7267] uppercase">{label}</span>
+      <p className="font-serif text-xl text-[#1C1917] mt-2">{value}</p>
     </div>
   )
-  return href ? <Link href={href}>{inner}</Link> : inner
+  return href ? <Link href={href} className="block hover:border-[#1A3022]">{inner}</Link> : inner
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>
+}) {
   const profile = await requireStaff()
+  const { from, to } = await searchParams
   const supabase = await createClient()
   const today = new Date().toISOString().slice(0, 10)
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  let orderQuery = supabase
-    .from('orders')
-    .select('id, status, order_value, expected_delivery_date, assigned_to, current_department_id, stage_due_at, owner_id, company_id')
-  orderQuery = applyOrderScope(orderQuery, profile)
+  let orderQuery = applyOrderScope(
+    supabase
+      .from('orders')
+      .select('id, status, order_value, expected_delivery_date, assigned_to, current_department_id, stage_due_at, owner_id, company_id, gross_profit, created_at'),
+    profile
+  )
+  let leadQuery = applyOwnerScope(
+    supabase.from('leads').select('id, stage, owner_id, created_at, estimated_value'),
+    profile
+  )
+  let reqQuery = applyOwnerScope(
+    supabase.from('requirements').select('id, status, owner_id, created_at'),
+    profile
+  )
+  let quoteQuery = applyOwnerScope(
+    supabase.from('quotations').select('id, status, total, owner_id, created_at'),
+    profile
+  )
+  let companyQuery = applyCompanyScope(
+    supabase.from('companies').select('id, status', { count: 'exact' }),
+    profile
+  )
+
+  if (from) {
+    orderQuery = orderQuery.gte('created_at', from)
+    leadQuery = leadQuery.gte('created_at', from)
+    reqQuery = reqQuery.gte('created_at', from)
+    quoteQuery = quoteQuery.gte('created_at', from)
+  }
+  if (to) {
+    orderQuery = orderQuery.lte('created_at', `${to}T23:59:59`)
+    leadQuery = leadQuery.lte('created_at', `${to}T23:59:59`)
+    reqQuery = reqQuery.lte('created_at', `${to}T23:59:59`)
+    quoteQuery = quoteQuery.lte('created_at', `${to}T23:59:59`)
+  }
 
   const [
     companies,
@@ -37,15 +75,17 @@ export default async function DashboardPage() {
     staff,
     tasks,
     followUps,
+    activity,
+    samples,
   ] = await Promise.all([
-    supabase.from('companies').select('id, status', { count: 'exact' }),
+    companyQuery,
     supabase.from('campaigns').select('id, status', { count: 'exact' }),
-    supabase.from('leads').select('id, stage, owner_id', { count: 'exact' }),
-    supabase.from('requirements').select('id, status, owner_id', { count: 'exact' }),
-    supabase.from('quotations').select('id, status, total, owner_id', { count: 'exact' }),
+    leadQuery,
+    reqQuery,
+    quoteQuery,
     orderQuery,
     canSeeFinance(profile.role)
-      ? supabase.from('invoices').select('id, amount, status, order_id')
+      ? supabase.from('invoices').select('id, amount, status, order_id, created_at')
       : Promise.resolve({ data: [] as { amount: number; status: string; order_id?: string }[] }),
     canSeeFinance(profile.role)
       ? supabase.from('payables').select('amount, status')
@@ -54,6 +94,14 @@ export default async function DashboardPage() {
     supabase.from('profiles').select('id, full_name, role, department_id').eq('is_active', true).in('role', ['admin', 'sales', 'operations', 'accounts', 'management']),
     supabase.from('tasks').select('id, status, due_at, assigned_to, completed_at, department_id'),
     supabase.from('activities').select('id, title, type, due_at, status, assigned_to').eq('assigned_to', profile.id).neq('status', 'done').order('due_at', { ascending: true }).limit(6),
+    supabase
+      .from('audit_logs')
+      .select('id, action, entity, entity_id, previous_value, new_value, created_at, user_id, profile:profiles(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(20),
+    (profile.role === 'admin' || profile.role === 'operations' || profile.role === 'management')
+      ? supabase.from('sample_stock').select('in_office, with_client, pending_supplier, with_team')
+      : Promise.resolve({ data: [] as { in_office: number; with_client: number; pending_supplier: number; with_team: number }[] }),
   ])
 
   const orderRows = orders.data || []
@@ -64,19 +112,30 @@ export default async function DashboardPage() {
   const taskRows = tasks.data || []
   const deptRows = departments.data || []
   const staffRows = staff.data || []
+  const activityRows = activity.data || []
+  const sampleRows = samples.data || []
+  const samplesOffice = sampleRows.reduce((s, r) => s + Number(r.in_office || 0), 0)
+  const samplesClient = sampleRows.reduce((s, r) => s + Number(r.with_client || 0), 0)
+  const samplesSupplier = sampleRows.reduce((s, r) => s + Number(r.pending_supplier || 0), 0)
+  const samplesTeam = sampleRows.reduce((s, r) => s + Number(r.with_team || 0), 0)
+  const samplesOut = samplesClient + samplesSupplier + samplesTeam
 
-  const mine = (ownerId?: string | null) => ownerId === profile.id
-  const salesLeads = profile.role === 'sales' ? leadRows.filter((l) => mine(l.owner_id)) : leadRows
-  const salesReqs = profile.role === 'sales' ? reqRows.filter((r) => mine(r.owner_id)) : reqRows
-  const salesQuotes = profile.role === 'sales' ? quoteRows.filter((q) => mine(q.owner_id)) : quoteRows
-  const salesOrders = profile.role === 'sales' ? orderRows.filter((o) => mine(o.owner_id) || o.assigned_to === profile.id) : orderRows
+  const convertedStages = new Set(['client', 'regular_client'])
+  const newLeads = leadRows.filter((l) => l.created_at && l.created_at >= weekAgo)
+  const convertedLeads = leadRows.filter((l) => convertedStages.has(l.stage))
+  const activeLeads = leadRows.filter((l) => !convertedStages.has(l.stage))
+  const openReqs = reqRows.filter((r) => r.status === 'active')
+  const pendingQuotes = quoteRows.filter((q) => ['draft', 'sent', 'viewed'].includes(q.status || ''))
+  const wonQuotes = quoteRows.filter((q) => q.status === 'accepted')
 
   const totalOrderValue = orderRows.reduce((s, o) => s + Number(o.order_value || 0), 0)
+  const margin = orderRows.reduce((s, o) => s + Number(o.gross_profit || 0), 0)
   const inProgress = orderRows.filter((o) => !['delivered', 'cancelled'].includes(o.status))
   const delayed = inProgress.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'delayed')
   const atRisk = inProgress.filter((o) => orderHealth(o.status, o.expected_delivery_date, o.stage_due_at) === 'at_risk')
   const unassigned = inProgress.filter((o) => !o.assigned_to)
   const delivered = orderRows.filter((o) => o.status === 'delivered')
+  const cancelled = orderRows.filter((o) => o.status === 'cancelled')
   const invoicedIds = new Set(invoiceRows.map((i) => i.order_id).filter(Boolean))
   const readyToInvoice = delivered.filter((o) => !invoicedIds.has(o.id)).length
   const won = orderRows.filter((o) => !['created', 'cancelled'].includes(o.status)).length
@@ -101,6 +160,11 @@ export default async function DashboardPage() {
     }
   })
 
+  const financeStages = [
+    { key: 'invoice', label: 'Invoice', n: invoiceRows.length, value: invoiced, href: '/crm/invoices' },
+    { key: 'payment', label: 'Payment', n: invoiceRows.filter((i) => i.status === 'paid').length, value: paid, href: '/crm/payments' },
+  ]
+
   const deptStats = deptRows.map((d) => {
     const rows = orderRows.filter((o) => o.current_department_id === d.id)
     const active = rows.filter((o) => !['delivered', 'cancelled'].includes(o.status))
@@ -111,64 +175,144 @@ export default async function DashboardPage() {
   })
 
   const people = staffRows.map((p) => {
-    const assigned = inProgress.filter((o) => o.assigned_to === p.id)
+    const assignedOrders = inProgress.filter((o) => o.assigned_to === p.id || o.owner_id === p.id)
+    const ownedLeads = leadRows.filter((l) => l.owner_id === p.id)
+    const ownedReqs = reqRows.filter((r) => r.owner_id === p.id)
+    const ownedQuotes = quoteRows.filter((q) => q.owner_id === p.id)
+    const orderValue = orderRows.filter((o) => o.owner_id === p.id || o.assigned_to === p.id).reduce((s, o) => s + Number(o.order_value || 0), 0)
     const pending = taskRows.filter((t) => t.assigned_to === p.id && t.status !== 'done' && !t.completed_at)
     const overdue = pending.filter((t) => t.due_at && t.due_at < today)
     const completed = taskRows.filter((t) => t.assigned_to === p.id && (t.status === 'done' || t.completed_at))
-    return { ...p, assigned: assigned.length, pending: pending.length, overdue: overdue.length, completed: completed.length }
-  }).filter((p) => profile.role === 'admin' || profile.role === 'management' || p.id === profile.id || p.department_id === profile.department_id)
+    return {
+      ...p,
+      assigned: assignedOrders.length,
+      leads: ownedLeads.length,
+      converted: ownedLeads.filter((l) => convertedStages.has(l.stage)).length,
+      reqs: ownedReqs.length,
+      quotes: ownedQuotes.length,
+      orderValue,
+      pending: pending.length,
+      overdue: overdue.length,
+      completed: completed.length,
+    }
+  }).filter((p) => seesAllSalesRecords(profile) || p.id === profile.id || p.department_id === profile.department_id)
 
   const greeting = profile.full_name?.split(' ')[0] || 'there'
   const roleTitle =
-    profile.role === 'admin' ? 'Organization overview — view all' :
+    profile.role === 'admin' ? 'Company-wide process tracking' :
     profile.role === 'management' ? 'Exceptions and performance' :
-    profile.role === 'sales' ? 'What needs a follow-up' :
-    profile.role === 'operations' ? 'What is pending, delayed, or due' :
-    profile.role === 'accounts' ? 'What is ready to invoice or collect' : 'What do I need to do?'
+    profile.role === 'sales' ? 'My pipeline and follow-ups' :
+    profile.role === 'operations' ? 'Assigned operational work' :
+    profile.role === 'accounts' ? 'Invoices, collections and payables' : 'What do I need to do?'
+
+  const ActivityFeed = () => (
+    <div className="bg-white rounded-xl border border-[#E5DFD5] p-5">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="font-serif text-lg">Activity</h2>
+        {(profile.role === 'admin' || profile.role === 'management') && (
+          <Link href="/crm/audit-log" className="text-xs underline">Full audit log</Link>
+        )}
+      </div>
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {activityRows.map((row) => {
+          const actor = Array.isArray(row.profile) ? row.profile[0] : row.profile
+          const href = entityHref(row.entity, row.entity_id)
+          const inner = (
+            <>
+              <p className="text-sm text-[#1C1917]">
+                <span className="font-semibold">{actor?.full_name || 'System'}</span>{' '}
+                {describeAudit(row.action, row.entity || 'record')}
+                {row.entity_id ? <span className="font-mono text-[11px] text-[#7A7267]"> #{String(row.entity_id).slice(0, 8)}</span> : null}
+              </p>
+              <p className="text-[11px] text-[#7A7267]">{formatDateTime(row.created_at)}</p>
+            </>
+          )
+          return href ? (
+            <Link key={row.id} href={href} className="block p-2 rounded-lg hover:bg-[#FAF7F2]">{inner}</Link>
+          ) : (
+            <div key={row.id} className="p-2">{inner}</div>
+          )
+        })}
+        {activityRows.length === 0 && <p className="text-sm text-gray-500">No recent activity.</p>}
+      </div>
+    </div>
+  )
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto space-y-8">
-      <div>
-        <h1 className="font-serif text-3xl text-[#1C1917]">Good day, {greeting}</h1>
-        <p className="text-xs text-[#7A7267] mt-1">{roleTitle}</p>
+    <div className="p-4 sm:p-8 max-w-[1600px] mx-auto space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-3xl text-[#1C1917]">Good day, {greeting}</h1>
+          <p className="text-xs text-[#7A7267] mt-1">{roleTitle}</p>
+        </div>
+        {(profile.role === 'admin' || profile.role === 'management') && (
+          <form className="flex items-center gap-2 text-xs">
+            <input type="date" name="from" defaultValue={from} className="border rounded-lg px-2 py-1.5 bg-white" />
+            <input type="date" name="to" defaultValue={to} className="border rounded-lg px-2 py-1.5 bg-white" />
+            <button type="submit" className="px-3 py-1.5 bg-[#1A3022] text-white hover:text-white rounded-lg">Filter</button>
+          </form>
+        )}
       </div>
 
       {(profile.role === 'admin' || profile.role === 'management') && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <Card label="Clients" value={companies.count || 0} href="/crm/companies" />
-            <Card label="Campaigns" value={campaigns.count || 0} href="/crm/campaigns" />
-            <Card label="Requirements" value={requirements.count || 0} href="/crm/requirements" />
-            <Card label="Quotations" value={quotations.count || 0} href="/crm/quotations" />
-            <Card label="Orders" value={orderRows.length} href="/crm/order-management" />
-            <Card label="Order value" value={formatCurrency(totalOrderValue)} />
-            <Card label="In progress" value={inProgress.length} />
-            <Card label="Due soon" value={atRisk.length} href="/crm/order-management?health=at_risk" />
-            <Card label="Delayed" value={delayed.length} href="/crm/order-management?health=delayed" warn={delayed.length > 0} />
-            <Card label="Delivered" value={delivered.length} />
-            {canSeeFinance(profile.role) && <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />}
-            {canSeeFinance(profile.role) && <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />}
-          </div>
+          <section>
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[#7A7267] mb-3">Business overview</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              <Card label="Total leads" value={leadRows.length} href="/crm/leads" />
+              <Card label="New leads" value={newLeads.length} href="/crm/leads" />
+              <Card label="Active leads" value={activeLeads.length} href="/crm/leads" />
+              <Card label="Converted leads" value={convertedLeads.length} href="/crm/leads?stage=client" />
+              <Card label="Lost requirements" value={lost} href="/crm/requirements?status=lost" />
+              <Card label="Lead conversion" value={`${leadRows.length ? Math.round((convertedLeads.length / leadRows.length) * 100) : 0}%`} />
+              <Card label="Requirements" value={reqRows.length} href="/crm/requirements" />
+              <Card label="Open requirements" value={openReqs.length} href="/crm/requirements?status=active" />
+              <Card label="Quotations" value={quoteRows.length} href="/crm/quotations" />
+              <Card label="Pending quotations" value={pendingQuotes.length} href="/crm/quotations?status=sent" />
+              <Card label="Won quotations" value={wonQuotes.length} href="/crm/quotations?status=accepted" />
+              <Card label="Orders" value={orderRows.length} href="/crm/orders" />
+              <Card label="Active orders" value={inProgress.length} href="/crm/order-management" />
+              <Card label="Completed orders" value={delivered.length} href="/crm/orders?status=delivered" />
+              <Card label="Cancelled orders" value={cancelled.length} href="/crm/orders?status=cancelled" />
+              <Card label="Revenue" value={formatCurrency(totalOrderValue)} />
+              {canSeeFinance(profile.role) && <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />}
+              {canSeeFinance(profile.role) && <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />}
+              {canSeeFinance(profile.role) && <Card label="Gross margin" value={formatCurrency(margin)} />}
+              <Card label="Clients" value={companies.count || 0} href="/crm/companies" />
+              <Card label="Campaigns" value={campaigns.count || 0} href="/crm/campaigns" />
+              <Card label="Delayed" value={delayed.length} href="/crm/order-management?health=delayed" warn={delayed.length > 0} />
+              <Card label="Samples out" value={samplesOut} href="/crm/samples" />
+              <Card label="Client samples" value={samplesClient} href="/crm/samples" />
+              <Card label="Supplier samples" value={samplesSupplier} href="/crm/samples" />
+            </div>
+          </section>
 
           {profile.role === 'management' && (
-            <div className="bg-white rounded-2xl border p-5">
+            <div className="bg-white rounded-xl border p-5">
               <h2 className="font-serif text-lg mb-3">Exceptions</h2>
-              <p className="text-sm">Delayed: {delayed.length} · At risk: {atRisk.length} · Unassigned: {unassigned.length}</p>
+              <p className="text-sm">Delayed: {delayed.length} · At risk: {atRisk.length} · Unassigned: {unassigned.length} · Lost requirements: {lost}</p>
               <Link href="/crm/order-management?health=delayed" className="text-xs underline mt-2 inline-block">Open delayed orders</Link>
             </div>
           )}
 
-          <div className="bg-white rounded-2xl border p-6">
+          <div className="bg-white rounded-xl border p-6">
             <div className="flex justify-between mb-4">
-              <h2 className="font-serif text-lg">Orders by stage</h2>
+              <h2 className="font-serif text-lg">Order pipeline</h2>
               <Link href="/crm/order-management?view=kanban" className="text-xs underline">Kanban</Link>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
               {byStage.map((s) => (
-                <Link key={s.st} href={`/crm/order-management?stage=${s.st}`} className="p-3 rounded-xl bg-[#FAF7F2] border">
+                <Link key={s.st} href={`/crm/order-management?stage=${s.st}`} className="p-3 rounded-xl bg-[#FAF7F2] border hover:border-[#1A3022]">
                   <p className="text-[11px] text-[#7A7267]">{ORDER_STATUS_LABELS[s.st]}</p>
                   <p className="text-xl font-semibold mt-1">{s.n}</p>
                   <p className="text-[11px] text-[#7A7267]">{formatCurrency(s.value)} · {s.overdue} overdue</p>
+                </Link>
+              ))}
+              {canSeeFinance(profile.role) && financeStages.map((s) => (
+                <Link key={s.key} href={s.href} className="p-3 rounded-xl bg-[#FAF7F2] border hover:border-[#1A3022]">
+                  <p className="text-[11px] text-[#7A7267]">{s.label}</p>
+                  <p className="text-xl font-semibold mt-1">{s.n}</p>
+                  <p className="text-[11px] text-[#7A7267]">{formatCurrency(s.value)}</p>
                 </Link>
               ))}
             </div>
@@ -176,7 +320,7 @@ export default async function DashboardPage() {
 
           {profile.role === 'admin' && (
             <>
-              <div className="bg-white rounded-2xl border p-6">
+              <div className="bg-white rounded-xl border p-6">
                 <h2 className="font-serif text-lg mb-3">Departments</h2>
                 <div className="grid md:grid-cols-3 gap-3">
                   {deptStats.map((d) => (
@@ -187,18 +331,35 @@ export default async function DashboardPage() {
                   ))}
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border p-6 overflow-x-auto">
-                <h2 className="font-serif text-lg mb-3">People</h2>
-                <table className="w-full text-xs">
+              <div className="bg-white rounded-xl border p-6 overflow-x-auto">
+                <h2 className="font-serif text-lg mb-3">Team performance</h2>
+                <table className="w-full text-xs min-w-[720px]">
                   <thead className="text-left text-[#7A7267]">
-                    <tr><th className="py-2">Employee</th><th>Role</th><th>Assigned orders</th><th>Pending tasks</th><th>Overdue</th><th>Completed</th></tr>
+                    <tr>
+                      <th className="py-2">Employee</th>
+                      <th>Role</th>
+                      <th>Leads</th>
+                      <th>Converted</th>
+                      <th>Requirements</th>
+                      <th>Quotations</th>
+                      <th>Orders</th>
+                      <th>Order value</th>
+                      <th>Pending tasks</th>
+                      <th>Overdue</th>
+                      <th>Completed</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {people.map((p) => (
                       <tr key={p.id} className="border-t">
                         <td className="py-2">{p.full_name}</td>
-                        <td>{p.role}</td>
+                        <td className="capitalize">{p.role}</td>
+                        <td>{p.leads}</td>
+                        <td>{p.converted}</td>
+                        <td>{p.reqs}</td>
+                        <td>{p.quotes}</td>
                         <td>{p.assigned}</td>
+                        <td>{formatCurrency(p.orderValue)}</td>
                         <td>{p.pending}</td>
                         <td className={p.overdue ? 'text-red-700 font-semibold' : ''}>{p.overdue}</td>
                         <td>{p.completed}</td>
@@ -209,28 +370,35 @@ export default async function DashboardPage() {
               </div>
             </>
           )}
+
+          <ActivityFeed />
         </>
       )}
 
       {profile.role === 'sales' && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card label="My leads" value={salesLeads.length} href="/crm/leads" />
-            <Card label="My requirements" value={salesReqs.filter((r) => r.status === 'active').length} href="/crm/requirements" />
-            <Card label="Awaiting response" value={salesQuotes.filter((q) => q.status === 'sent').length} href="/crm/quotations" />
-            <Card label="Won orders" value={salesOrders.filter((o) => o.status === 'delivered' || o.status === 'confirmed').length} href="/crm/orders" />
+            <Card label="My leads" value={leadRows.length} href="/crm/leads" />
+            <Card label="My requirements" value={openReqs.length} href="/crm/requirements" />
+            <Card label="My quotations" value={quoteRows.length} href="/crm/quotations?owner=mine" />
+            <Card label="Pending quotes" value={pendingQuotes.length} href="/crm/quotations?status=sent" />
+            <Card label="My orders" value={orderRows.length} href="/crm/orders" />
+            <Card label="My revenue" value={formatCurrency(totalOrderValue)} />
             <Card label="Req → quote" value={`${reqToQuote}%`} />
             <Card label="Quote → order" value={`${quoteToOrder}%`} />
-            <Card label="Revenue (won)" value={formatCurrency(salesOrders.reduce((s, o) => s + Number(o.order_value || 0), 0))} />
             <Card label="My work" value="Open" href="/crm/my-work" />
+            <Card label="Follow-ups" value={(followUps.data || []).length} href="/crm/activities" />
           </div>
-          <div className="bg-white rounded-2xl border p-5">
-            <h2 className="font-serif text-lg mb-2">Upcoming follow-ups</h2>
-            {(followUps.data || []).map((a) => (
-              <p key={a.id} className="text-sm py-1">{a.type} · {a.title}</p>
-            ))}
-            {(!followUps.data || followUps.data.length === 0) && <p className="text-sm text-gray-500">No follow-ups due.</p>}
-            <Link href="/crm/activities" className="text-xs underline mt-2 inline-block">Activity feed</Link>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border p-5">
+              <h2 className="font-serif text-lg mb-2">Upcoming follow-ups</h2>
+              {(followUps.data || []).map((a) => (
+                <p key={a.id} className="text-sm py-1">{a.type} · {a.title}</p>
+              ))}
+              {(!followUps.data || followUps.data.length === 0) && <p className="text-sm text-gray-500">No follow-ups due.</p>}
+              <Link href="/crm/activities" className="text-xs underline mt-2 inline-block">Activity feed</Link>
+            </div>
+            <ActivityFeed />
           </div>
         </div>
       )}
@@ -244,22 +412,29 @@ export default async function DashboardPage() {
             <Card label="Procurement" value={orderRows.filter((o) => o.status === 'procurement').length} href="/crm/order-management?stage=procurement" />
             <Card label="Printing" value={orderRows.filter((o) => o.status === 'printing').length} href="/crm/order-management?stage=printing" />
             <Card label="QC" value={orderRows.filter((o) => o.status === 'quality_check').length} href="/crm/order-management?stage=quality_check" />
-            <Card label="Dispatch" value={orderRows.filter((o) => o.status === 'ready_to_dispatch' || o.status === 'dispatched').length} href="/crm/order-management?stage=ready_to_dispatch" />
+            <Card label="Packing" value={orderRows.filter((o) => o.status === 'ready_to_dispatch').length} href="/crm/order-management?stage=ready_to_dispatch" />
+            <Card label="In transit" value={orderRows.filter((o) => o.status === 'dispatched').length} href="/crm/order-management?stage=dispatched" />
+            <Card label="Delivered" value={delivered.length} href="/crm/orders?status=delivered" />
             <Card label="Kanban" value="Board" href="/crm/order-management?view=kanban" />
           </div>
+          <ActivityFeed />
         </div>
       )}
 
       {profile.role === 'accounts' && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card label="Ready to invoice" value={readyToInvoice} href="/crm/orders" />
-          <Card label="Invoices" value={invoiceRows.length} href="/crm/invoices" />
-          <Card label="Unpaid" value={unpaid.length} href="/crm/receivables" />
-          <Card label="Partial" value={partial.length} href="/crm/receivables" />
-          <Card label="Overdue" value={overdueInv.length} href="/crm/receivables" warn={overdueInv.length > 0} />
-          <Card label="Received" value={formatCurrency(paid)} href="/crm/payments" />
-          <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />
-          <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card label="Ready to invoice" value={readyToInvoice} href="/crm/orders" />
+            <Card label="Invoices" value={invoiceRows.length} href="/crm/invoices" />
+            <Card label="Unpaid" value={unpaid.length} href="/crm/receivables" />
+            <Card label="Partial" value={partial.length} href="/crm/receivables" />
+            <Card label="Overdue" value={overdueInv.length} href="/crm/receivables" warn={overdueInv.length > 0} />
+            <Card label="Received" value={formatCurrency(paid)} href="/crm/payments" />
+            <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />
+            <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />
+            <Card label="GST reports" value="Open" href="/crm/reports?tab=gst" />
+          </div>
+          <ActivityFeed />
         </div>
       )}
     </div>

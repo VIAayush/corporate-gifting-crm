@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, Menu } from 'lucide-react';
 import { markNotificationRead } from '@/app/crm/notifications/actions';
 
 type Note = {
@@ -17,9 +17,11 @@ type Note = {
 export function Topbar({
   user,
   notifications = [],
+  onMenuClick,
 }: {
   user?: { name?: string; email?: string }
   notifications?: Note[]
+  onMenuClick?: () => void
 }) {
   const email = user?.email || 'admin@oaklane.demo'
   const unread = notifications.filter((n) => !n.read_at).length
@@ -27,9 +29,21 @@ export function Topbar({
   const [, start] = useTransition()
 
   return (
-    <header className="h-14 border-b border-[#E5DFD5] bg-[#F4EFE6] px-8 flex items-center justify-between flex-shrink-0 relative">
-      <div className="text-xs text-[#7A7267] font-normal tracking-normal">
-        Corporate gifting, from enquiry to payment
+    <header className="h-14 border-b border-[#E5DFD5] bg-[#F4EFE6] px-4 sm:px-8 flex items-center justify-between flex-shrink-0 relative">
+      <div className="flex items-center gap-3 min-w-0">
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            className="lg:hidden p-2 rounded-lg border border-[#E5DFD5] bg-white text-[#1A3022] hover:bg-[#FAF7F2]"
+            aria-label="Open navigation"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        )}
+        <div className="text-xs text-[#7A7267] font-normal tracking-normal hidden sm:block">
+          Corporate gifting, from enquiry to payment
+        </div>
       </div>
       <form action="/crm/search" className="hidden md:flex items-center gap-2 flex-1 max-w-md mx-8">
         <Search className="w-4 h-4 text-[#7A7267]" />

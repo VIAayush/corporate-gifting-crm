@@ -82,11 +82,11 @@ export const ORDER_STATUSES = [
 export { ORDER_STATUS_LABELS } from "@/lib/order-workflow"
 
 export const LEAD_STAGE_LABELS: Record<string, string> = {
-  cold: "Cold",
-  warm: "Warm",
-  hot: "Hot",
-  client: "Client",
-  regular_client: "Regular Client",
+  cold: "New",
+  warm: "Contacted",
+  hot: "Qualified",
+  client: "Won",
+  regular_client: "Regular",
 }
 
 export const QUOTATION_STATUS_LABELS: Record<string, string> = {

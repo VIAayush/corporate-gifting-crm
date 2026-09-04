@@ -47,7 +47,7 @@ export function LoginForm({ next = '' }: { next?: string }) {
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <h1 className="font-serif text-4xl text-[#1C1917] tracking-tight">GIFFTER</h1>
         <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-[#7A7267] mt-1">
-          GIFT OPERATIONS PLATFORM
+          Corporate Gifting Platform
         </p>
         <p className="text-xs text-[#7A7267] mt-3">
           Corporate gifting, from enquiry to payment.
@@ -115,7 +115,7 @@ export function LoginForm({ next = '' }: { next?: string }) {
 
           <div className="mt-8 pt-6 border-t border-[#EFE9E0]">
             <p className="text-[11px] font-semibold text-[#7A7267] uppercase tracking-wider mb-3">
-              One-Click Demo Accounts (Password: Oaklane-Demo-2026!)
+              Demo accounts (password is the same for every seeded user)
             </p>
             <div className="space-y-1.5">
               {demoAccounts.map((account) => (

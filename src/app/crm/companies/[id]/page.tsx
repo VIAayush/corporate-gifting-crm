@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { BackButton } from '@/components/ui/back-button'
 import { CompanyAvatar } from '@/components/ui/avatar'
@@ -9,6 +9,7 @@ import { uploadCompanyLogo, removeCompanyLogo } from '../actions'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Plus, Package, Trash2, Globe, Lock, Users, TrendingUp, ClipboardList, ShoppingBag } from 'lucide-react'
 import { grantCompanyProductAccess, revokeCompanyProductAccess } from '@/app/crm/products/actions'
+import { requireStaff } from '@/lib/auth'
 
 export default async function CompanyDetailPage({
   params,
@@ -17,12 +18,12 @@ export default async function CompanyDetailPage({
   params: Promise<{ id: string }>
   searchParams: Promise<{ tab?: string }>
 }) {
+  const profile = await requireStaff()
   const { id } = await params
   const { tab = 'overview' } = await searchParams
+  const canManageVisibility = profile.role === 'admin'
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const [
     { data: company },
@@ -35,7 +36,7 @@ export default async function CompanyDetailPage({
     { data: companyProducts },
     { data: allProducts }
   ] = await Promise.all([
-    supabase.from('companies').select('*, owner:profiles!companies_owner_id_fkey(id, full_name, email)').eq('id', id).single(),
+    supabase.from('companies').select('*, owner:profiles!companies_owner_id_fkey(id, full_name, email)').eq('id', id).maybeSingle(),
     supabase.from('contacts').select('*').eq('company_id', id).order('full_name'),
     supabase.from('leads').select('*').eq('company_id', id).order('created_at', { ascending: false }),
     supabase.from('requirements').select('*').eq('company_id', id).order('created_at', { ascending: false }),
@@ -188,6 +189,7 @@ export default async function CompanyDetailPage({
               </p>
             </div>
 
+            {canManageVisibility && (
             <form action={addProductAction} className="flex items-center gap-2 w-full sm:w-auto">
               <select
                 name="product_id"
@@ -201,11 +203,12 @@ export default async function CompanyDetailPage({
               </select>
               <button
                 type="submit"
-                className="px-3 py-2 text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] rounded-lg transition-colors whitespace-nowrap"
+                className="px-3 py-2 text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] hover:text-white rounded-lg transition-colors whitespace-nowrap"
               >
                 <Plus size={14} className="inline mr-1" /> Assign Product
               </button>
             </form>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
@@ -241,6 +244,7 @@ export default async function CompanyDetailPage({
                       {formatDate(cp.created_at)}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {canManageVisibility && (
                       <form action={removeProductAction} className="inline">
                         <input type="hidden" name="product_id" value={cp.product_id} />
                         <button
@@ -251,6 +255,7 @@ export default async function CompanyDetailPage({
                           <Trash2 size={15} />
                         </button>
                       </form>
+                      )}
                     </td>
                   </tr>
                 ))}

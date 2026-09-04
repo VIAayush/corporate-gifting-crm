@@ -13,7 +13,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   if (!user) redirect('/login')
 
   const [{ data: invoice }, { data: payments }] = await Promise.all([
-    supabase.from('invoices').select('*, company:companies(id, name), order:orders(id, order_number)').eq('id', id).single(),
+    supabase.from('invoices').select('*, company:companies(id, name), order:orders(id, order_number)').eq('id', id).maybeSingle(),
     supabase.from('payments').select('*').eq('invoice_id', id).order('payment_date', { ascending: false })
   ])
 

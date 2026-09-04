@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
@@ -10,18 +9,20 @@ const STATUS_COLORS: Record<string, string> = {
   lost: 'bg-red-100 text-red-800'
 }
 
+import { requireStaff, applyOwnerScope } from '@/lib/auth'
+
 export default async function RequirementsPage(props: { searchParams: Promise<{ status?: string }> }) {
+  const profile = await requireStaff()
   const searchParams = await props.searchParams
   const statusFilter = searchParams.status || 'all'
   
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   let query = supabase
     .from('requirements')
     .select('*, company:companies(id, name), owner:profiles(id, full_name)')
     .order('created_at', { ascending: false })
+  query = applyOwnerScope(query, profile)
 
   if (statusFilter !== 'all') {
     query = query.eq('status', statusFilter)
@@ -35,7 +36,7 @@ export default async function RequirementsPage(props: { searchParams: Promise<{ 
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-primary)]">Requirements</h1>
-        <button className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-md hover:opacity-90">
+        <button className="bg-[var(--color-primary)] text-white hover:text-white px-4 py-2 rounded-md hover:opacity-90">
           Add Requirement
         </button>
       </div>

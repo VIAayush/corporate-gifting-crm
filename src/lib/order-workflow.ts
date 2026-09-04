@@ -13,13 +13,13 @@ export type LifecycleStatus = (typeof ORDER_LIFECYCLE)[number] | "cancelled" | "
 
 export const ORDER_STATUS_LABELS: Record<string, string> = {
   created: "Order Received",
-  confirmed: "Order Confirmed",
+  confirmed: "Planning",
   in_progress: "In Progress",
   procurement: "Procurement",
-  printing: "Printing / Customization",
+  printing: "Printing",
   quality_check: "Quality Check",
-  ready_to_dispatch: "Ready to Dispatch",
-  dispatched: "Dispatched",
+  ready_to_dispatch: "Packing",
+  dispatched: "In Transit",
   delivered: "Delivered",
   cancelled: "Cancelled",
 }

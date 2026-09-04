@@ -1,13 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { ProductImage } from '@/components/ui/product-image'
 import { Plus, Search, Globe, Lock, EyeOff } from 'lucide-react'
+import { requireStaff, canSeeCosts } from '@/lib/auth'
 
 const PAGE_SIZE = 50
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; access?: string; page?: string }> }) {
+  const profile = await requireStaff(['admin', 'sales', 'management', 'operations'])
+  const showCost = canSeeCosts(profile.role)
   const params = await searchParams
   const search = (params.q || '').replace(/[,()*]/g, ' ').trim()
   const statusFilter = params.status || 'all'
@@ -17,8 +19,6 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const from = (currentPage - 1) * PAGE_SIZE
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   let query = supabase
     .from('products')
@@ -63,12 +63,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             Every product carries a unique SKU and its own client visibility. {total} in the catalogue.
           </p>
         </div>
+        {['admin', 'sales'].includes(profile.role) && (
         <Link
           href="/crm/products/new"
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] shadow-sm transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-[#4A235A] hover:bg-[#3d1c4a] hover:text-white shadow-sm transition-colors"
         >
           <Plus size={14} /> Add Product
         </Link>
+        )}
       </div>
 
       <div className="bg-white p-4 rounded-xl border border-gray-200 flex flex-wrap items-center justify-between gap-3">
@@ -114,15 +116,17 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <table className="w-full text-xs">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
+        <table className="w-full text-xs min-w-[800px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Product</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Brand</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Category</th>
+              {showCost && <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Cost</th>}
               <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Price</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">MOQ</th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Catalogue Visibility</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Visibility</th>
               <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase">Status</th>
             </tr>
           </thead>
@@ -145,8 +149,16 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-600 font-medium">
+                    {p.brand?.name || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 font-medium">
                     {p.category?.name || '—'}
                   </td>
+                  {showCost && (
+                    <td className="px-4 py-3 text-gray-700">
+                      {formatCurrency(p.supplier_cost)}
+                    </td>
+                  )}
                   <td className="px-4 py-3 font-bold text-gray-900">
                     {formatCurrency(p.price)}
                   </td>
@@ -182,7 +194,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             })}
             {(!products || products.length === 0) && (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-400">
+                <td colSpan={showCost ? 8 : 7} className="p-8 text-center text-gray-400">
                   No products found matching your filters.
                 </td>
               </tr>

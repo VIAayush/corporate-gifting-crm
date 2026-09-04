@@ -16,7 +16,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     .from('leads')
     .select('*, company:companies(*), contact:contacts(*), owner:profiles!leads_owner_id_fkey(full_name)')
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
   if (!lead) notFound()
 

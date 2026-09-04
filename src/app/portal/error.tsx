@@ -27,7 +27,7 @@ export default function PortalError({
           <div className="flex items-center gap-3 mt-4">
             <button
               onClick={reset}
-              className="px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--color-primary)] text-white hover:opacity-90"
+              className="px-3 py-1.5 rounded-md text-sm font-medium bg-[var(--color-primary)] text-white hover:text-white hover:opacity-90"
             >
               Try again
             </button>

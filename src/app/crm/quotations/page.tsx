@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { requireStaff } from '@/lib/auth'
+import { requireStaff, applyOwnerScope } from '@/lib/auth'
 import { FileText } from 'lucide-react'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,15 +45,20 @@ export default async function QuotationsPage(props: {
     )
     .order('created_at', { ascending: false })
     .limit(100)
+  query = applyOwnerScope(query, profile)
 
   if (status !== 'all') query = query.eq('status', status)
-  if (owner === 'mine') query = query.eq('owner_id', profile.id)
+  if (owner === 'mine' || profile.role === 'sales') query = query.eq('owner_id', profile.id)
+  else if (owner !== 'all') query = query.eq('owner_id', owner)
   if (q.trim()) query = query.ilike('quotation_number', `%${q.trim()}%`)
+
+  let acceptedQuery = applyOwnerScope(supabase.from('quotations').select('id', { count: 'exact', head: true }).eq('status', 'accepted'), profile)
+  let totalQuery = applyOwnerScope(supabase.from('quotations').select('id', { count: 'exact', head: true }), profile)
 
   const [{ data: quotations, error }, { count: acceptedCount }, { count: totalCount }] = await Promise.all([
     query,
-    supabase.from('quotations').select('id', { count: 'exact', head: true }).eq('status', 'accepted'),
-    supabase.from('quotations').select('id', { count: 'exact', head: true }),
+    acceptedQuery,
+    totalQuery,
   ])
 
   const rows = (quotations || []) as unknown as QuotationRow[]
@@ -115,8 +120,8 @@ export default async function QuotationsPage(props: {
         </form>
       </div>
 
-      <div className="bg-white rounded-2xl border overflow-hidden">
-        <table className="w-full text-left text-xs">
+      <div className="bg-white rounded-2xl border overflow-x-auto">
+        <table className="w-full text-left text-xs min-w-[720px]">
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="p-4 font-medium text-gray-500">Quote #</th>

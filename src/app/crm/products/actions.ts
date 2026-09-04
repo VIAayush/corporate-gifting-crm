@@ -4,8 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getProfile } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 const CATALOGUE_ROLES = ['admin', 'sales'] as const
+const VISIBILITY_ROLES = ['admin'] as const
 type CatalogueRole = (typeof CATALOGUE_ROLES)[number]
 
 export async function createProduct(formData: FormData) {
@@ -28,8 +30,9 @@ export async function createProduct(formData: FormData) {
   const moq = parseInt(formData.get('moq') as string, 10) || 1
   const image_url = (formData.get('image_url') as string) || null
   const status = (formData.get('status') as string) || 'active'
-  const catalogue_access = (formData.get('catalogue_access') as string) || 'all'
-  const selectedCompanies = formData.getAll('company_ids') as string[]
+  const catalogue_access =
+    profile.role === 'admin' ? ((formData.get('catalogue_access') as string) || 'all') : 'all'
+  const selectedCompanies = profile.role === 'admin' ? (formData.getAll('company_ids') as string[]) : []
 
   if (!name || !sku) {
     return { error: 'Product name and SKU are required' }
@@ -278,7 +281,7 @@ export async function removeProductImage(formData: FormData) {
 export async function saveCatalogueVisibility(productId: string, mode: string, companyIds: string[]) {
   const profile = await getProfile()
   if (!profile) return { error: 'Not authenticated' }
-  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+  if (!VISIBILITY_ROLES.includes(profile.role as (typeof VISIBILITY_ROLES)[number])) {
     return { error: 'Not permitted to change catalogue visibility' }
   }
   if (!['all', 'selected', 'none'].includes(mode)) {
@@ -310,6 +313,14 @@ export async function saveCatalogueVisibility(productId: string, mode: string, c
     if (insertError) return { error: 'Unable to update catalogue visibility. Please try again.' }
   }
 
+  await writeAudit(supabase, {
+    action: 'assignment_change',
+    entity: 'products',
+    entityId: productId,
+    next: { catalogue_access: mode, companyIds: mode === 'selected' ? companyIds : [] },
+    userId: profile.id,
+  })
+
   revalidatePath(`/crm/products/${productId}`)
   revalidatePath('/crm/products')
   revalidatePath('/portal/catalogue')
@@ -319,7 +330,7 @@ export async function saveCatalogueVisibility(productId: string, mode: string, c
 export async function grantCompanyProductAccess(productId: string, companyId: string) {
   const profile = await getProfile()
   if (!profile) return { error: 'Not authenticated' }
-  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+  if (!VISIBILITY_ROLES.includes(profile.role as (typeof VISIBILITY_ROLES)[number])) {
     return { error: 'Not permitted to change catalogue visibility' }
   }
 
@@ -347,7 +358,7 @@ export async function grantCompanyProductAccess(productId: string, companyId: st
 export async function revokeCompanyProductAccess(productId: string, companyId: string) {
   const profile = await getProfile()
   if (!profile) return { error: 'Not authenticated' }
-  if (!CATALOGUE_ROLES.includes(profile.role as CatalogueRole)) {
+  if (!VISIBILITY_ROLES.includes(profile.role as (typeof VISIBILITY_ROLES)[number])) {
     return { error: 'Not permitted to change catalogue visibility' }
   }
 

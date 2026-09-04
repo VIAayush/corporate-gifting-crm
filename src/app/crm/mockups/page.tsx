@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { registerMockup } from './actions'
+import { requireStaff, applyOwnerScope, applyOrderScope } from '@/lib/auth'
 
 function fileHref(path: string | null) {
   if (!path) return null
@@ -11,14 +11,13 @@ function fileHref(path: string | null) {
 }
 
 export default async function MockupsPage() {
+  const profile = await requireStaff(['admin', 'sales', 'operations', 'management'])
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const [{ data: mockups }, { data: requirements }, { data: orders }] = await Promise.all([
     supabase.from('mockups').select('*, requirement:requirements(name, company:companies(name)), order:orders(order_number), uploader:profiles!uploaded_by(full_name)').order('created_at', { ascending: false }),
-    supabase.from('requirements').select('id, name').order('created_at', { ascending: false }).limit(50),
-    supabase.from('orders').select('id, order_number').order('created_at', { ascending: false }).limit(50),
+    applyOwnerScope(supabase.from('requirements').select('id, name').order('created_at', { ascending: false }).limit(50), profile),
+    applyOrderScope(supabase.from('orders').select('id, order_number').order('created_at', { ascending: false }).limit(50), profile),
   ])
 
   return (

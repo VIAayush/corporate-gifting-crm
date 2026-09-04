@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { getProfile } from '@/lib/auth'
+import { writeAudit } from '@/lib/audit'
 
 const LOGO_BUCKET = 'company-logos'
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
@@ -23,9 +24,17 @@ async function requireCompanyEditor() {
   return { profile }
 }
 export async function createCompany(formData: FormData) {
+  const access = await requireCompanyEditor()
+  if ('error' in access) return { error: access.error }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  const ownerId =
+    access.profile.role === 'admin'
+      ? ((formData.get('owner_id') as string) || user.id)
+      : user.id
   const { data, error } = await supabase.from('companies').insert({
     name: formData.get('name') as string,
     industry: formData.get('industry') as string || null,
@@ -35,13 +44,39 @@ export async function createCompany(formData: FormData) {
     country: (formData.get('country') as string) || 'India',
     address: formData.get('address') as string || null,
     notes: formData.get('notes') as string || null,
-    owner_id: user.id,
-    status: 'active',
+    owner_id: ownerId,
+    status: (formData.get('status') as string) || 'active',
   }).select('id').single()
   if (error) return { error: error.message }
+
+  const file = formData.get('logo')
+  if (file instanceof File && file.size > 0) {
+    const extension = ALLOWED_LOGO_TYPES[file.type]
+    if (extension && file.size <= MAX_LOGO_BYTES) {
+      const objectPath = `${data.id}/${Date.now()}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from(LOGO_BUCKET)
+        .upload(objectPath, file, { contentType: file.type, upsert: false })
+      if (!uploadError) {
+        await supabase.from('companies').update({ logo_path: objectPath }).eq('id', data.id)
+      }
+    }
+  }
+
+  await writeAudit(supabase, {
+    action: 'create',
+    entity: 'companies',
+    entityId: data.id,
+    next: { name: formData.get('name'), owner_id: ownerId },
+    userId: user.id,
+  })
+
   redirect(`/crm/companies/${data.id}`)
 }
 export async function updateCompany(companyId: string, formData: FormData) {
+  const access = await requireCompanyEditor()
+  if ('error' in access) return { error: access.error }
+
   const supabase = await createClient()
   const { error } = await supabase.from('companies').update({
     name: formData.get('name') as string,
@@ -54,6 +89,13 @@ export async function updateCompany(companyId: string, formData: FormData) {
     notes: formData.get('notes') as string || null,
   }).eq('id', companyId)
   if (error) return { error: error.message }
+  await writeAudit(supabase, {
+    action: 'update',
+    entity: 'companies',
+    entityId: companyId,
+    next: { name: formData.get('name') },
+    userId: access.profile.id,
+  })
   redirect(`/crm/companies/${companyId}`)
 }
 
@@ -98,6 +140,15 @@ export async function uploadCompanyLogo(formData: FormData) {
     await supabase.storage.from(LOGO_BUCKET).remove([company.logo_path])
   }
 
+  await writeAudit(supabase, {
+    action: 'update',
+    entity: 'companies',
+    entityId: companyId,
+    previous: { logo_path: company.logo_path },
+    next: { logo_path: objectPath },
+    userId: access.profile.id,
+  })
+
   revalidatePath(`/crm/companies/${companyId}`)
   revalidatePath('/crm/companies')
   return { success: true }
@@ -124,6 +175,15 @@ export async function removeCompanyLogo(formData: FormData) {
   if (company.logo_path) {
     await supabase.storage.from(LOGO_BUCKET).remove([company.logo_path])
   }
+
+  await writeAudit(supabase, {
+    action: 'update',
+    entity: 'companies',
+    entityId: companyId,
+    previous: { logo_path: company.logo_path },
+    next: { logo_path: null },
+    userId: access.profile.id,
+  })
 
   revalidatePath(`/crm/companies/${companyId}`)
   revalidatePath('/crm/companies')

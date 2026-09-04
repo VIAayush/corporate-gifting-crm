@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatCurrency, formatDate, LEAD_STAGE_LABELS } from '@/lib/utils'
 import { TrendingUp, Plus, User } from 'lucide-react'
@@ -12,10 +11,11 @@ const STAGE_COLORS: Record<string, string> = {
   regular_client: 'bg-emerald-100 text-emerald-700',
 }
 
+import { requireStaff, applyOwnerScope } from '@/lib/auth'
+
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ view?: string; stage?: string; owner?: string }> }) {
+  const profile = await requireStaff()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
 
   const params = await searchParams
   const view = params.view || 'kanban'
@@ -24,9 +24,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
     .from('leads')
     .select('*, company:companies(id, name, logo_path), contact:contacts(id, full_name, designation), owner:profiles!leads_owner_id_fkey(id, full_name)')
     .order('created_at', { ascending: false })
+  query = applyOwnerScope(query, profile)
 
   if (params.stage) query = query.eq('stage', params.stage)
-  if (params.owner) query = query.eq('owner_id', params.owner)
+  if (params.owner && profile.role !== 'sales') query = query.eq('owner_id', params.owner)
 
   const { data: leads } = await query
   const { data: owners } = await supabase.from('profiles').select('id, full_name').in('role', ['admin', 'sales']).order('full_name')

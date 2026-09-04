@@ -1,23 +1,28 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createContact } from './actions'
+import { requireStaff, applyCompanyScope } from '@/lib/auth'
+import { CompanyAvatar } from '@/components/ui/avatar'
 
 export default async function ContactsPage(props: { searchParams: Promise<{ search?: string }> }) {
+  const profile = await requireStaff(['admin', 'sales', 'management'])
   const searchParams = await props.searchParams
   const search = searchParams.search || ''
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return redirect('/login')
+  const companyQuery = applyCompanyScope(
+    supabase.from('companies').select('id, name, logo_path').order('name'),
+    profile
+  )
+  const { data: companies } = await companyQuery
+  const companyIds = (companies || []).map((c) => c.id)
 
-  let query = supabase.from('contacts').select('*, company:companies(id, name)').order('full_name')
+  let query = supabase.from('contacts').select('*, company:companies(id, name, logo_path)').order('full_name')
+  if (companyIds.length > 0) query = query.in('company_id', companyIds)
+  else query = query.eq('company_id', '00000000-0000-0000-0000-000000000000')
   if (search) query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`)
 
-  const [{ data: contacts }, { data: companies }] = await Promise.all([
-    query,
-    supabase.from('companies').select('id, name').order('name'),
-  ])
+  const { data: contacts } = await query
 
   return (
     <div className="p-6 space-y-6">
@@ -42,7 +47,7 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
           <option value="procurement">Procurement</option>
           <option value="other">Other</option>
         </select>
-        <button className="bg-[#1A3022] text-white rounded-lg font-semibold md:col-span-3 py-2">Add contact</button>
+        <button className="bg-[#1A3022] text-white hover:text-white rounded-lg font-semibold md:col-span-3 py-2">Add contact</button>
       </form>
 
       <form className="flex-1 max-w-md flex gap-2">
@@ -50,38 +55,37 @@ export default async function ContactsPage(props: { searchParams: Promise<{ sear
         <button type="submit" className="bg-gray-100 px-4 py-2 border rounded-md text-sm">Search</button>
       </form>
 
-      <div className="bg-white rounded-lg border overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 border-b">
+      <div className="bg-white rounded-lg border overflow-x-auto">
+        <table className="w-full text-left text-sm min-w-[640px]">
+          <thead className="bg-gray-50 text-xs text-gray-500">
             <tr>
-              <th className="p-4 font-medium text-gray-500">Name</th>
-              <th className="p-4 font-medium text-gray-500">Company</th>
-              <th className="p-4 font-medium text-gray-500">Designation</th>
-              <th className="p-4 font-medium text-gray-500">Email</th>
-              <th className="p-4 font-medium text-gray-500">Phone</th>
-              <th className="p-4 font-medium text-gray-500">Type</th>
+              <th className="p-3">Name</th>
+              <th className="p-3">Company</th>
+              <th className="p-3">Email</th>
+              <th className="p-3">Phone</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {contacts?.map((contact) => {
-              const company = Array.isArray(contact.company) ? contact.company[0] : contact.company
+          <tbody>
+            {(contacts || []).map((c: any) => {
+              const company = Array.isArray(c.company) ? c.company[0] : c.company
               return (
-                <tr key={contact.id} className="hover:bg-gray-50">
-                  <td className="p-4">{contact.full_name}</td>
-                  <td className="p-4">
+                <tr key={c.id} className="border-t">
+                  <td className="p-3 font-medium">{c.full_name}</td>
+                  <td className="p-3">
                     {company ? (
-                      <Link href={`/crm/companies/${company.id}`} className="text-blue-600 hover:underline">{company.name}</Link>
+                      <Link href={`/crm/companies/${company.id}`} className="inline-flex items-center gap-2 hover:underline">
+                        <CompanyAvatar name={company.name} logoPath={company.logo_path} size="sm" />
+                        {company.name}
+                      </Link>
                     ) : '—'}
                   </td>
-                  <td className="p-4">{contact.designation || '—'}</td>
-                  <td className="p-4">{contact.email || '—'}</td>
-                  <td className="p-4">{contact.phone || '—'}</td>
-                  <td className="p-4 capitalize">{contact.contact_type || 'other'}</td>
+                  <td className="p-3 text-gray-600">{c.email || '—'}</td>
+                  <td className="p-3 text-gray-600">{c.phone || '—'}</td>
                 </tr>
               )
             })}
-            {!contacts?.length && (
-              <tr><td colSpan={6} className="p-8 text-center text-gray-500">No contacts found.</td></tr>
+            {(!contacts || contacts.length === 0) && (
+              <tr><td colSpan={4} className="p-8 text-center text-gray-500">No contacts in your assigned companies.</td></tr>
             )}
           </tbody>
         </table>
