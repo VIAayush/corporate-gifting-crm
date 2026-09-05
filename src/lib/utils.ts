@@ -5,9 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+const DISPLAY_LOCALE = "en-IN"
+const DISPLAY_TIME_ZONE = "Asia/Kolkata"
+
 export function formatCurrency(amount: number | null | undefined, currency = "INR") {
   if (amount == null) return "—"
-  return new Intl.NumberFormat("en-IN", {
+  return new Intl.NumberFormat(DISPLAY_LOCALE, {
     style: "currency",
     currency,
     maximumFractionDigits: 0,
@@ -18,7 +21,8 @@ export function formatDate(date: string | null | undefined) {
   if (!date) return "—"
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
+    timeZone: DISPLAY_TIME_ZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -29,12 +33,14 @@ export function formatDateTime(date: string | null | undefined) {
   if (!date) return "—"
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
+    timeZone: DISPLAY_TIME_ZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: true,
   }).format(parsed)
 }
 

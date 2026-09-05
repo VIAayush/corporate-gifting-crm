@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { getProfile } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { generateTemporaryPassword, SERVICE_ROLE_MISSING, validateNewPassword } from '@/lib/auth/password'
 
 const LOGO_BUCKET = 'company-logos'
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
@@ -200,7 +201,10 @@ export async function createPortalClient(formData: FormData) {
   const email = String(formData.get('email') || '').trim().toLowerCase()
   const fullName = String(formData.get('full_name') || '').trim()
   const role = String(formData.get('role') || 'client_user')
-  const password = String(formData.get('password') || '')
+  let password = String(formData.get('password') || '')
+  if (formData.get('generate_password') === '1' || !password) {
+    password = generateTemporaryPassword()
+  }
 
   if (!companyId || !email || !fullName) {
     return { error: 'Name, email and company are required' }
@@ -208,9 +212,8 @@ export async function createPortalClient(formData: FormData) {
   if (role !== 'client_admin' && role !== 'client_user') {
     return { error: 'Invalid portal role' }
   }
-  if (password.length < 8) {
-    return { error: 'Password must be at least 8 characters' }
-  }
+  const passwordError = validateNewPassword(password)
+  if (passwordError) return { error: passwordError }
 
   const supabase = await createClient()
   const { data: company } = await supabase.from('companies').select('id, name').eq('id', companyId).maybeSingle()
@@ -218,9 +221,16 @@ export async function createPortalClient(formData: FormData) {
 
   const admin = createAdminClient()
   if (!admin) {
-    return {
-      error: 'Client login cannot be created until SUPABASE_SERVICE_ROLE_KEY is configured on the server.',
-    }
+    return { error: SERVICE_ROLE_MISSING }
+  }
+
+  const { data: existingProfile } = await admin
+    .from('profiles')
+    .select('id, email, company_id')
+    .eq('email', email)
+    .maybeSingle()
+  if (existingProfile) {
+    return { error: 'A user with this login email already exists. A duplicate login was not created.' }
   }
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -234,21 +244,26 @@ export async function createPortalClient(formData: FormData) {
     },
   })
   if (error || !created.user) {
-    return { error: error?.message || 'Could not create the client login' }
+    const message = error?.message || 'Could not create the client login'
+    if (message.toLowerCase().includes('already') || message.toLowerCase().includes('registered')) {
+      return { error: 'A user with this login email already exists. A duplicate login was not created.' }
+    }
+    return { error: message }
   }
 
   const { error: profileError } = await admin
     .from('profiles')
-    .update({
+    .upsert({
+      id: created.user.id,
       full_name: fullName,
       email,
       role,
       company_id: companyId,
       is_active: true,
     })
-    .eq('id', created.user.id)
   if (profileError) {
-    return { error: `Login was created but the company assignment failed: ${profileError.message}` }
+    await admin.auth.admin.deleteUser(created.user.id)
+    return { error: `Client login was not saved because company assignment failed: ${profileError.message}` }
   }
 
   await writeAudit(supabase, {
@@ -261,5 +276,54 @@ export async function createPortalClient(formData: FormData) {
 
   revalidatePath(`/crm/companies/${companyId}`)
   revalidatePath('/crm/team')
-  return { success: true }
+  return { success: true, email, temporaryPassword: password }
+}
+
+export async function resetPortalClientPassword(formData: FormData) {
+  const profile = await getProfile()
+  if (!profile) return { error: 'Not authenticated' }
+  if (profile.role !== 'admin') return { error: 'Only an admin can reset client passwords' }
+
+  const userId = String(formData.get('user_id') || '')
+  const companyId = String(formData.get('company_id') || '')
+  let password = String(formData.get('password') || '')
+  if (formData.get('generate_password') === '1' || !password) {
+    password = generateTemporaryPassword()
+  }
+  const passwordError = validateNewPassword(password)
+  if (passwordError) return { error: passwordError }
+  if (!userId) return { error: 'Client is required' }
+
+  const admin = createAdminClient()
+  if (!admin) return { error: SERVICE_ROLE_MISSING }
+
+  const { data: client } = await admin
+    .from('profiles')
+    .select('id, email, role, company_id, is_active')
+    .eq('id', userId)
+    .maybeSingle()
+  if (!client) return { error: 'Client not found' }
+  if (companyId && client.company_id !== companyId) return { error: 'Client does not belong to this company' }
+  if (client.role !== 'client_admin' && client.role !== 'client_user') {
+    return { error: 'Only portal client passwords can be reset here' }
+  }
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { password })
+  if (error) return { error: error.message }
+
+  const supabase = await createClient()
+  await writeAudit(supabase, {
+    action: 'update',
+    entity: 'profiles',
+    entityId: userId,
+    next: { password_reset: true },
+    userId: profile.id,
+  })
+
+  revalidatePath(`/crm/companies/${client.company_id}`)
+  return {
+    success: true,
+    email: client.email,
+    temporaryPassword: password,
+  }
 }

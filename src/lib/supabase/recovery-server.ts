@@ -1,18 +1,19 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { authCookieName } from '@/lib/auth/tab'
-import { getRequestTabId } from '@/lib/auth/tab-server'
+import { RECOVERY_COOKIE_NAME } from '@/lib/auth/tab'
 
-export async function createClient() {
+export async function createRecoveryServerClient() {
   const cookieStore = await cookies()
-  const tabId = await getRequestTabId()
-  const cookieName = authCookieName(tabId || 'none')
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: { name: cookieName },
+      cookieOptions: {
+        name: RECOVERY_COOKIE_NAME,
+        path: '/',
+        sameSite: 'lax',
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll()

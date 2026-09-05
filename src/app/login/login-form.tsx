@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { signIn } from './actions';
-import { Mail, Lock, Loader2 } from 'lucide-react';
+import { Mail, Loader2 } from 'lucide-react';
+import { PasswordField } from '@/components/auth/password-field';
 
 /** Dedicated demo identities from the original Oaklane seed. Same password for every seeded user. */
 const DEMO_PASSWORD = 'Oaklane-Demo-2026!'
@@ -25,12 +28,17 @@ function isNextRedirect(err: unknown) {
 }
 
 export function LoginForm({ next = '' }: { next?: string }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const authenticate = async (loginEmail: string, loginPassword: string) => {
+    if (!loginEmail.trim() || !loginPassword) {
+      setError('Email and password are required');
+      return;
+    }
     setLoading(true);
     setError(null);
     const formData = new FormData();
@@ -42,7 +50,14 @@ export function LoginForm({ next = '' }: { next?: string }) {
       if (res?.error) {
         setError(res.error);
         setLoading(false);
+        return;
       }
+      if (res?.redirectTo) {
+        router.push(res.redirectTo);
+        router.refresh();
+        return;
+      }
+      setLoading(false);
     } catch (err) {
       if (isNextRedirect(err)) throw err;
       console.error(err);
@@ -106,24 +121,15 @@ export function LoginForm({ next = '' }: { next?: string }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#5A5248] mb-1.5 uppercase tracking-wider">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Lock className="h-4 w-4 text-gray-400" />
-                </div>
-                <input
-                  name="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                  className="block w-full pl-10 pr-3 py-2.5 bg-[#FAF7F2] border border-[#E5DFD5] rounded-xl text-xs text-[#1C1917] placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#1A3022] focus:border-[#1A3022] transition-colors"
-                  placeholder="Enter your password"
-                />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-[#5A5248] uppercase tracking-wider">
+                  Password
+                </label>
+                <Link href="/forgot-password" className="text-[11px] font-semibold text-[#4A235A] hover:underline">
+                  Forgot password?
+                </Link>
               </div>
+              <PasswordField value={password} onChange={setPassword} />
             </div>
 
             <button
@@ -134,6 +140,13 @@ export function LoginForm({ next = '' }: { next?: string }) {
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
             </button>
           </form>
+
+          <p className="text-xs text-center text-[#7A7267] mt-5">
+            Need an account?{' '}
+            <Link href="/signup" className="font-semibold text-[#4A235A] hover:underline">
+              Sign up
+            </Link>
+          </p>
 
           <div className="mt-8 pt-6 border-t border-[#EFE9E0]">
             <p className="text-xs font-semibold text-[#1C1917] uppercase tracking-wider">Demo Accounts</p>

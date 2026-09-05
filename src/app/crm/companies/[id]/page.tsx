@@ -13,6 +13,7 @@ import { requireStaff } from '@/lib/auth'
 import { createContact } from '@/app/crm/contacts/actions'
 import { asFormAction } from '@/lib/form-action'
 import { PortalClientForm } from '../portal-client-form'
+import { ManageClientLogin } from '../manage-client-login'
 import { CLIENT_STATUS_LABELS, ORDER_LIFECYCLE, lifecycleIndex } from '@/lib/order-workflow'
 
 export default async function CompanyDetailPage({
@@ -301,22 +302,39 @@ export default async function CompanyDetailPage({
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Name</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Email</th>
+                  <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Client ID / Login email</th>
                   <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Role</th>
                   <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                  {profile.role === 'admin' && (
+                    <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Login</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {clients?.map((client) => (
                   <tr key={client.id}>
                     <td className="px-4 py-2.5 font-medium">{client.full_name}</td>
-                    <td className="px-4 py-2.5 text-gray-600">{client.email}</td>
+                    <td className="px-4 py-2.5 text-gray-600 font-mono">{client.email}</td>
                     <td className="px-4 py-2.5 capitalize">{String(client.role).replace('_', ' ')}</td>
                     <td className="px-4 py-2.5">{client.is_active ? 'Active' : 'Inactive'}</td>
+                    {profile.role === 'admin' && (
+                      <td className="px-4 py-2.5">
+                        <ManageClientLogin
+                          companyId={company.id}
+                          client={{
+                            id: client.id,
+                            full_name: client.full_name,
+                            email: client.email || '',
+                            role: String(client.role),
+                            is_active: Boolean(client.is_active),
+                          }}
+                        />
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {(!clients || clients.length === 0) && (
-                  <tr><td colSpan={4} className="p-6 text-center text-gray-400">No portal clients for this company yet.</td></tr>
+                  <tr><td colSpan={profile.role === 'admin' ? 5 : 4} className="p-6 text-center text-gray-400">No portal clients for this company yet.</td></tr>
                 )}
               </tbody>
             </table>

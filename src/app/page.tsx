@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { getRequestTabId } from "@/lib/auth/tab-server"
+import { TabSessionRevive } from "@/components/auth/tab-session-revive"
 
 export default async function RootPage() {
+  if (!(await getRequestTabId())) return <TabSessionRevive />
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
