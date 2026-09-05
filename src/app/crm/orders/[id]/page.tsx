@@ -19,8 +19,8 @@ import {
   orderHealth,
   HEALTH_LABELS,
   HEALTH_STYLES,
-  lifecycleIndex,
 } from '@/lib/order-workflow'
+import { OrderLifecycleBar } from '@/components/orders/order-lifecycle'
 import { ShoppingBag, ChevronRight } from 'lucide-react'
 import { asFormAction } from '@/lib/form-action'
 
@@ -82,7 +82,6 @@ export default async function OrderDetailPage({
   const order = orderRes.data
   if (!order) notFound()
 
-  const currentStepIndex = lifecycleIndex(order.status)
   const isDelivered = order.status === 'delivered' || order.status === 'cancelled'
   const health = orderHealth(order.status, order.expected_delivery_date, order.stage_due_at)
   const showCosts = canSeeCosts(profile.role)
@@ -159,14 +158,15 @@ export default async function OrderDetailPage({
       </div>
 
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
-        <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Lifecycle</h3>
-        <div className="grid grid-cols-4 md:grid-cols-8 gap-2 text-center">
-          {ORDER_LIFECYCLE.map((step, idx) => (
-            <div key={step} className={`text-[10px] font-semibold ${idx <= currentStepIndex ? 'text-[#1A3022]' : 'text-gray-400'}`}>
-              {idx < currentStepIndex ? '✓' : idx === currentStepIndex ? '●' : '○'} {ORDER_STATUS_LABELS[step]}
-            </div>
-          ))}
+        <div>
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Lifecycle</h3>
+          <p className="text-[11px] text-[#7A7267] mt-1">
+            Current stage: {ORDER_STATUS_LABELS[order.status] || order.status}
+            {assignee?.full_name ? ` · Assigned to ${assignee.full_name}` : ''}
+            {department?.name ? ` · ${department.name}` : ''}
+          </p>
         </div>
+        <OrderLifecycleBar status={order.status} history={history} showActors />
       </div>
 
       {canStage && !isDelivered && (

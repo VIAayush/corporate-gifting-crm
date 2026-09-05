@@ -51,7 +51,7 @@ const navGroups: NavGroup[] = [
       { label: 'Mockup Storage', href: '/crm/mockups', matchPrefix: '/crm/mockups', icon: ImageIcon },
       { label: 'Quotations', href: '/crm/quotations', matchPrefix: '/crm/quotations', icon: FileText },
       { label: 'Orders', href: '/crm/orders', matchPrefix: '/crm/orders', icon: ShoppingBag },
-      { label: 'Sample Management', href: '/crm/samples', matchPrefix: '/crm/samples', icon: Package2 },
+      { label: 'Samples', href: '/crm/samples', matchPrefix: '/crm/samples', icon: Package2 },
       { label: 'Campaigns', href: '/crm/campaigns', matchPrefix: '/crm/campaigns', icon: FolderGit2 },
       { label: 'Activities', href: '/crm/activities', matchPrefix: '/crm/activities', icon: Activity },
     ]
@@ -114,6 +114,16 @@ export function Sidebar({ role, user, onNavigate }: SidebarProps) {
 
   const displayName = user?.name?.trim() || 'User';
   const roleName = role === 'admin' ? 'Admin' : role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const seenHrefs = new Set<string>()
+  const visibleGroups = navGroups.flatMap((group) => {
+    if (!group.roles.includes(role)) return []
+    const items = group.items.filter((item) => {
+      if (seenHrefs.has(item.href)) return false
+      seenHrefs.add(item.href)
+      return true
+    })
+    return items.length ? [{ ...group, items }] : []
+  })
 
   return (
     <aside className="w-64 flex-shrink-0 h-full max-h-screen min-h-0 bg-[#16281E] text-[#A3B5AA] flex flex-col select-none border-r border-[#1B3224]">
@@ -129,9 +139,7 @@ export function Sidebar({ role, user, onNavigate }: SidebarProps) {
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 space-y-5">
-        {navGroups.map((group) => {
-          if (!group.roles.includes(role)) return null;
-          return (
+        {visibleGroups.map((group) => (
             <div key={group.label} className="space-y-1">
               <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-[#697D71]">
                 {group.label}
@@ -157,8 +165,7 @@ export function Sidebar({ role, user, onNavigate }: SidebarProps) {
                 })}
               </div>
             </div>
-          );
-        })}
+        ))}
       </nav>
 
       <div className="shrink-0 p-4 border-t border-[#21382A] bg-[#122219]">

@@ -15,6 +15,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 import { requireStaff, applyOrderScope } from '@/lib/auth'
+import { OrderLifecycleBar } from '@/components/orders/order-lifecycle'
 
 type OrderCompany = { id: string; name: string }
 type OrderOwner = { id: string; full_name: string | null }
@@ -37,7 +38,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
 
   let query = supabase
     .from('orders')
-    .select('*, company:companies(id, name), owner:profiles(id, full_name)')
+    .select('*, company:companies(id, name), owner:profiles!orders_owner_id_fkey(id, full_name)')
     .order('created_at', { ascending: false })
   query = applyOrderScope(query, profile)
 
@@ -46,6 +47,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
   }
 
   const { data: orders, error } = await query
+  if (error) console.error('Orders list query failed', error.message)
   const orderRows = asRows<OrderRow>(orders)
 
   const statuses = ['all', 'created', 'confirmed', 'procurement', 'printing', 'quality_check', 'ready_to_dispatch', 'dispatched', 'delivered']
@@ -57,6 +59,11 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-primary)]">Orders</h1>
       </div>
+      {error && (
+        <div className="mb-4 p-3 rounded-xl bg-red-50 text-red-700 text-xs border border-red-200">
+          Orders could not be loaded. {error.message}
+        </div>
+      )}
 
       <div className="mb-6 flex gap-2 border-b">
         {statuses.map(status => (
@@ -103,6 +110,9 @@ export default async function OrdersPage(props: { searchParams: Promise<{ status
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-800'}`}>
                       {(order.status || 'unknown').replace('_', ' ')}
                     </span>
+                    <div className="mt-2 max-w-[140px]">
+                      <OrderLifecycleBar status={order.status} compact />
+                    </div>
                   </td>
                   <td className={`p-4 ${isOverdue ? 'text-red-600 font-medium' : ''}`}>
                     {order.expected_delivery_date ? formatDate(order.expected_delivery_date) : '-'}

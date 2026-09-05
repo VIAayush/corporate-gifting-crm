@@ -10,6 +10,7 @@ import {
 } from '@/lib/order-workflow'
 import Link from 'next/link'
 import { OrderKanban } from '@/components/orders/order-kanban'
+import { OrderLifecycleBar } from '@/components/orders/order-lifecycle'
 
 type NamedRef = { id?: string; name?: string | null; full_name?: string | null }
 type ControlOrder = {
@@ -103,6 +104,9 @@ export default async function OrderControlCenterPage({
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-primary)]">Order Control Center</h1>
           <p className="text-xs text-[#7A7267] mt-1">Who owns each order right now, and whether it is healthy.</p>
+          <p className="text-[10px] text-[#7A7267] mt-2">
+            Lifecycle: {ORDER_LIFECYCLE.map((s) => ORDER_STATUS_LABELS[s]).join(' → ')}
+          </p>
         </div>
         <div className="flex gap-2 text-xs">
           <Link href={tableHref} className={`px-3 py-1.5 rounded-lg border ${view === 'table' ? 'bg-[#1A3022] text-white border-[#1A3022]' : 'bg-white'}`}>Table</Link>
@@ -199,7 +203,10 @@ export default async function OrderControlCenterPage({
                     <td className="px-3 py-3">{company?.name || '—'}</td>
                     <td className="px-3 py-3">{campaign?.name || '—'}</td>
                     <td className="px-3 py-3 font-medium">{formatCurrency(o.order_value)}</td>
-                    <td className="px-3 py-3">{ORDER_STATUS_LABELS[o.status] || o.status}</td>
+                    <td className="px-3 py-3">
+                      <p>{ORDER_STATUS_LABELS[o.status] || o.status}</p>
+                      <OrderLifecycleBar status={o.status} compact />
+                    </td>
                     <td className="px-3 py-3">{department?.name || '—'}</td>
                     <td className="px-3 py-3">{assignee?.full_name || 'Unassigned'}</td>
                     <td className="px-3 py-3">{formatDate(o.expected_delivery_date)}</td>

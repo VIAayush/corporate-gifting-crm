@@ -4,17 +4,39 @@ import React, { useState } from 'react';
 import { signIn } from './actions';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 
+/** Dedicated demo identities from the original Oaklane seed. Same password for every seeded user. */
+const DEMO_PASSWORD = 'Oaklane-Demo-2026!'
+
+const DEMO_ACCOUNTS = [
+  { email: 'admin@oaklane.demo', role: 'Admin', action: 'Login as Admin' },
+  { email: 'sales@oaklane.demo', role: 'Sales', action: 'Login as Sales' },
+  { email: 'ops@oaklane.demo', role: 'Operations', action: 'Login as Operations' },
+  { email: 'accounts@oaklane.demo', role: 'Accounts', action: 'Login as Accounts' },
+  { email: 'management@oaklane.demo', role: 'Management', action: 'Login as Management' },
+  { email: 'priya@wipro.example', role: 'Client', action: 'Login as Client' },
+] as const
+
+function isNextRedirect(err: unknown) {
+  const digest =
+    typeof err === 'object' && err && 'digest' in err
+      ? String((err as { digest?: unknown }).digest)
+      : ''
+  return digest.startsWith('NEXT_REDIRECT')
+}
+
 export function LoginForm({ next = '' }: { next?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const authenticate = async (loginEmail: string, loginPassword: string) => {
     setLoading(true);
     setError(null);
-    const formData = new FormData(e.currentTarget);
+    const formData = new FormData();
+    formData.set('email', loginEmail);
+    formData.set('password', loginPassword);
+    if (next) formData.set('next', next);
     try {
       const res = await signIn(formData);
       if (res?.error) {
@@ -22,14 +44,21 @@ export function LoginForm({ next = '' }: { next?: string }) {
         setLoading(false);
       }
     } catch (err) {
-      const digest =
-        typeof err === 'object' && err && 'digest' in err
-          ? String((err as { digest?: unknown }).digest)
-          : ''
-      if (digest.startsWith('NEXT_REDIRECT')) throw err
+      if (isNextRedirect(err)) throw err;
       console.error(err);
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    await authenticate(email, password);
+  };
+
+  const loginDemo = async (accountEmail: string) => {
+    setEmail(accountEmail);
+    setPassword(DEMO_PASSWORD);
+    await authenticate(accountEmail, DEMO_PASSWORD);
   };
 
   return (
@@ -105,6 +134,33 @@ export function LoginForm({ next = '' }: { next?: string }) {
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
             </button>
           </form>
+
+          <div className="mt-8 pt-6 border-t border-[#EFE9E0]">
+            <p className="text-xs font-semibold text-[#1C1917] uppercase tracking-wider">Demo Accounts</p>
+            <p className="text-[11px] font-semibold text-[#92400E] mt-1">
+              DEMO / TEST ACCOUNT — NOT FOR CLIENT USE
+            </p>
+            <p className="text-[11px] text-[#7A7267] mt-1 mb-3">
+              Seeded test identities for QA. Normal email/password sign-in still works.
+            </p>
+            <div className="space-y-2">
+              {DEMO_ACCOUNTS.map((account) => (
+                <button
+                  key={account.email}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => loginDemo(account.email)}
+                  className="w-full text-left p-2.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EFE9E0] border border-[#EFE9E0] flex justify-between items-center gap-3 transition-all disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[#7A7267]">{account.role}</span>
+                    <span className="block text-xs text-[#1C1917] truncate">{account.email}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-semibold text-[#1A3022]">{account.action}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

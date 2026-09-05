@@ -2,9 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { BackButton } from '@/components/ui/back-button'
 import { formatCurrency, formatDate, isUuid, oneRelation } from '@/lib/utils'
-import { ORDER_LIFECYCLE, CLIENT_STATUS_LABELS, lifecycleIndex } from '@/lib/order-workflow'
+import { CLIENT_STATUS_LABELS } from '@/lib/order-workflow'
 import { Truck } from 'lucide-react'
 import { ProductImage } from '@/components/ui/product-image'
+import { OrderLifecycleBar } from '@/components/orders/order-lifecycle'
 
 export default async function PortalOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -31,7 +32,6 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
     notFound()
   }
 
-  const currentStageIndex = lifecycleIndex(order.status)
   const campaign = oneRelation(order.campaign)
   const courier = oneRelation(order.courier_partner)
   const quotation = oneRelation(order.quotation)
@@ -76,17 +76,7 @@ export default async function PortalOrderDetailPage({ params }: { params: Promis
 
         <div className="p-6 border-b space-y-4">
           <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Timeline</h3>
-          <ol className="space-y-2">
-            {ORDER_LIFECYCLE.map((stage, idx) => {
-              const done = idx < currentStageIndex || order.status === 'delivered'
-              const current = idx === currentStageIndex && order.status !== 'delivered'
-              return (
-                <li key={stage} className={`text-sm ${done || current ? 'text-[#1A3022]' : 'text-gray-400'}`}>
-                  {done ? '✓' : current ? '●' : '○'} {CLIENT_STATUS_LABELS[stage]}
-                </li>
-              )
-            })}
-          </ol>
+          <OrderLifecycleBar status={order.status} variant="client" showActors={false} />
         </div>
 
         {order.tracking_number && (
