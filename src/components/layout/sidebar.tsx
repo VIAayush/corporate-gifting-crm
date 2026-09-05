@@ -77,7 +77,7 @@ const navGroups: NavGroup[] = [
       { label: 'Payments', href: '/crm/payments', matchPrefix: '/crm/payments', icon: CreditCard },
       { label: 'Receivables', href: '/crm/receivables', matchPrefix: '/crm/receivables', icon: ArrowDownToLine },
       { label: 'Payables', href: '/crm/payables', matchPrefix: '/crm/payables', icon: Landmark },
-      { label: 'GST Reports', href: '/crm/reports?tab=gst', matchPrefix: '/crm/reports', icon: BarChart3 },
+      { label: 'GST Reports', href: '/crm/gst-reports', matchPrefix: '/crm/gst-reports', icon: BarChart3 },
     ]
   },
   {

@@ -45,7 +45,7 @@ const nextConfig: NextConfig = {
       { source: '/crm/my-team', destination: '/crm/team' },
       { source: '/crm/knowledge-center', destination: '/crm/knowledge' },
       { source: '/crm/learn-giffter', destination: '/crm/knowledge' },
-      { source: '/crm/gst-reports', destination: '/crm/reports?tab=gst' },
+      { source: '/gst-reports', destination: '/crm/gst-reports' },
       { source: '/crm/payment-receivables', destination: '/crm/receivables' },
       { source: '/crm/payments-payable', destination: '/crm/payables' },
       { source: '/crm/manual-payment', destination: '/crm/payments' },

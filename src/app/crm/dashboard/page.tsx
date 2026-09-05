@@ -470,7 +470,7 @@ export default async function DashboardPage({
             <Card label="Received" value={formatCurrency(paid)} href="/crm/payments" />
             <Card label="Outstanding" value={formatCurrency(outstanding)} href="/crm/receivables" />
             <Card label="Payables" value={formatCurrency(payableTotal)} href="/crm/payables" />
-            <Card label="GST reports" value="Open" href="/crm/reports?tab=gst" />
+            <Card label="GST reports" value="Open" href="/crm/gst-reports" />
           </div>
           <ActivityFeed />
         </div>
